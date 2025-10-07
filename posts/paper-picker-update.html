@@ -113,7 +113,7 @@
   Updated algorithm for my paper picker bash script.
 </summary>
 <h1>Paper Picker Update</h1>
-<p><small class="date">Published: 7 Oct 2025 at 14:04 ADT</small></p>
+<p><small class="date">Published: 7 Oct 2025 at 14:10 ADT</small></p>
 <p><small class="tech">Bash | Hyprland</small></p>
 <p>
 Several months ago after switching to <a href="https://hypr.land/">Hyrpland,</a> I started using their wallpaper utility, <a href="https://wiki.hypr.land/Hypr-Ecosystem/hyprpaper/">Hyprpaper</a>.  I have multiple monitors and like to spice my life up by cycling through wallpapers once an hour or so. I created some <a href="https://github.com/Naokotani/dotnao/blob/main/hypr/scripts/start_paper.sh">bash scripts</a> and a cron job to run the scripts on a timely basis, and choose which directory to pull the images from using wofi. While it worked, it had several problems associated with it. I had to hard code the monitor names into the script, and when I switched between computers it was a nuisance to have to update this. The algorithm to get random non-duplicated wallpapers was also not very good. I had used a while loop to continuously call a function until the names didn&rsquo;t match. The logic to add a third monitor was also buggy, and it was difficult to get it to deal with situations where there were fewer wallpapers in the directory than monitors.  But it sort of worked! so for several months I left it alone.
