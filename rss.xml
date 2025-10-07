@@ -1,0 +1,1969 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Chris Hughes dot Dev</title>
+    <link>https://chris-hughes.dev</link>
+    <category>Web Development</category> 
+    <description>
+      A Developer blog for Chris Hughes. Specializes in JavaScript, Rust, Web development, SQL
+    </description>
+    
+    <item>
+      <title>ZNC Bouncer with Doom Emacs</title>
+      <pubDate>Fri, 12 Sep 2025 05:34:00 -0300</pubDate>
+      <guid>/posts/znc-bouncer.html</guid>
+      <link>/posts/znc-bouncer.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+IRC is a great chat protocol, but it has some annoying limitations when compared to other modern chat protocols. First and foremost, it lacks the ability to see messages that are sent on servers when you are not connected to a server via a client. Messages are sent to your client when you are connected, but there is no obvious way to log messages that are sent while you are offline. This means that when you log into a server you might come into the middle of an existing conversation with no context, or if you send someone a direct message and then log off, they have no way to send you a response until you log back on to the server again.  Luckily there is an excellent, if not entirely straightforward or ergonomic, solution to this. The IRC bouncer.
+</p>
+<div id="outline-container-orgc32fbf9" class="outline-2">
+<h2 id="orgc32fbf9">What is an IRC Bouncer?</h2>
+<div class="outline-text-2" id="text-orgc32fbf9">
+<p>
+In simple terms,  an IRC bouncer is  an application that is able to connect to one or more IRC servers, such as <a href="https://libera.chat/">Libera Chat</a>, and sending and receiving messages via the IRC protocol in a similar way to a regular IRC client. There are some key distinctions though. An IRC bouncer is designed to be connected to an IRC server continuously and is able to log messages that are sent when we aren&rsquo;t connected with a client.  Another distinction is that when we connect with an IRC client, our username, or nickname,  is registered with the server.  This means that our  nickname will be unavailable if we try to connect again with another client. The workaround to this is that clients provide the functionality to define aliases or backup user names that look very similar to our normal user name, but are slightly different. For example, if my normal user name is <code>Naokotani</code>, I could log in as <code>Naokotani~</code> from a second client and people will most likely be able to deduce who I am. Still, people don&rsquo;t know <i>for sure</i> that it is you, and it is a bit jarring to many of us that are accustomed other modern chat software where logging in with the same username from different clients is common place.
+</p>
+
+<p>
+IRC bouncers pose a solution to this problem. Instead of logging into a server separately from different clients, the IRC bouncer logs into the server once with our nickname and stays logged in. The bouncer then acts as a proxy that we can connect to multiple times from different clients and, as far as the server is concerned, we have only logged in once.
+</p>
+
+<p>
+IRC bouncers also solve the problem of missed messages. They are able to log messages that you miss while you are not connected with a client because they are connected all the time. The bouncer can log messages and use a &ldquo;playback&rdquo; to show you the messages that were sent while you were not connected. This is similar to other chat software that will use a horizontal rule to separate the messages that you have &ldquo;seen&rdquo; from those that were sent while you were away.
+</p>
+</div>
+</div>
+<div id="outline-container-org4a14df4" class="outline-2">
+<h2 id="org4a14df4">My Setup</h2>
+<div class="outline-text-2" id="text-org4a14df4">
+<p>
+As is customary with open protocols like IRC, there are many ways to implement this functionality. In my case I opted to host a <a href="https://wiki.znc.in/ZNC">ZNC</a> bouncer on a VPS, in my case I used <a href="https://www.digitalocean.com/">Digital Ocean</a>, but any provider should suffice, run it in <a href="https://hub.docker.com/_/znc/">Docker</a>, reverse proxy it with <a href="https://nginx.org/">Nginx</a> and then connect to it from <a href="https://github.com/doomemacs/doomemacs">Doom Emacs</a> using the Emacs <a href="https://github.com/emacs-circe/circe">Circe</a> client, the default IRC client for Doom Emacs.
+</p>
+
+<p>
+These selections are somewhat arbitrary, but  determined by infrastructure that I  had set up previously for other projects, and there are many viable alternatives to these. <a href="https://soju.im/">Soju</a> is a popular alternative to ZNC that you might want to check out. I am using Nginx as the reverse proxy for my setup and, while it is very capable of performing this task well, Nginx can be a little bit arcane and hard to setup. <a href="https://caddyserver.com/">Caddy</a> is another popular choice for a reverse proxy. It is generally easier to setup and has built-in automatic SSL. If you don&rsquo;t like Docker for whatever reason, you can always use <a href="https://podman.io/">Podman</a>, or of course you can just run the bouncer directly on your host machine. As for clients, you could also use <a href="https://www.gnu.org/software/emacs/erc.html">ERC</a>, a CLI app like <a href="https://weechat.org/">Weechat</a>, or a GUI client like <a href="https://apps.gnome.org/Polari/">Polari</a>. I could digress and talk about all of these, but there are enough moving parts here already that it&rsquo;s best we get to it.
+</p>
+</div>
+</div>
+<div id="outline-container-orgf606bdf" class="outline-2">
+<h2 id="orgf606bdf">Running ZNC</h2>
+<div class="outline-text-2" id="text-orgf606bdf">
+<p>
+The first step is to get ZNC itself running on your machine. You can do this in two simple commands. First run:
+</p>
+<div class="org-src-container">
+<pre class="src src-bash">docker run -it -v znc-cfg:/znc-data znc --makeconf
+</pre>
+</div>
+
+<p>
+This will pull the official ZNC image if it&rsquo;s not on your machine, create a persistent volume for the ZNC configuration data called <code>znc-cfg</code>, run it with an interactive terminal, the <code>-it</code> part, and then run ZNC with the <code>--makeconf</code> flag which, as the name suggestions, will setup an initial configuration file.
+</p>
+
+<p>
+When you do this you will be prompted to make some initial configuration entries. You should get prompts that look like this.
+</p>
+<div class="org-src-container">
+<pre class="src src-bash"><span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span> -- Global settings --
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span>
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Listen on port <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64; font-weight: bold;">1025</span> to <span style="color: #ff9e64; font-weight: bold;">65534</span><span style="color: #a9b1d6;">)</span>: <span style="color: #ff9e64; font-weight: bold;">12345</span>
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Listen using SSL <span style="color: #a9b1d6;">(</span>yes/no<span style="color: #a9b1d6;">)</span> <span style="color: #a9b1d6;">[</span>no<span style="color: #a9b1d6;">]</span>:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Listen using both IPv4 and IPv6 <span style="color: #a9b1d6;">(</span>yes/no<span style="color: #a9b1d6;">)</span> <span style="color: #a9b1d6;">[</span>yes<span style="color: #a9b1d6;">]</span>:
+<span style="color: #a9b1d6;">[</span> .. <span style="color: #a9b1d6;">]</span> Verifying the listener...
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span> Unable to locate pem file: <span style="color: #a9b1d6;">[</span>/znc-data/znc.pem<span style="color: #a9b1d6;">]</span>, creating it
+<span style="color: #a9b1d6;">[</span> .. <span style="color: #a9b1d6;">]</span> Writing Pem file <span style="color: #a9b1d6;">[</span>/znc-data/znc.pem<span style="color: #a9b1d6;">]</span>...
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span> Enabled global modules <span style="color: #a9b1d6;">[</span>corecaps, saslplainauth, webadmin<span style="color: #a9b1d6;">]</span>
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span>
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span> -- Admin user settings --
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span>
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Username <span style="color: #a9b1d6;">(</span>alphanumeric<span style="color: #a9b1d6;">)</span>: User
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Enter password:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Confirm password:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Nick <span style="color: #a9b1d6;">[</span>User<span style="color: #a9b1d6;">]</span>:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Alternate nick <span style="color: #a9b1d6;">[</span>User_<span style="color: #a9b1d6;">]</span>:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Ident <span style="color: #a9b1d6;">[</span>User<span style="color: #a9b1d6;">]</span>:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Real name <span style="color: #a9b1d6;">(</span>optional<span style="color: #a9b1d6;">)</span>:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Bind host <span style="color: #a9b1d6;">(</span>optional<span style="color: #a9b1d6;">)</span>:
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span> Enabled user modules <span style="color: #a9b1d6;">[</span>chansaver, controlpanel<span style="color: #a9b1d6;">]</span>
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span>
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Set up a network? <span style="color: #a9b1d6;">(</span>yes/no<span style="color: #a9b1d6;">)</span> <span style="color: #a9b1d6;">[</span>yes<span style="color: #a9b1d6;">]</span>:
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span>
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span> -- Network settings --
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span>
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Name <span style="color: #a9b1d6;">[</span>libera<span style="color: #a9b1d6;">]</span>:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Server host <span style="color: #a9b1d6;">[</span>irc.libera.chat<span style="color: #a9b1d6;">]</span>:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Server uses SSL? <span style="color: #a9b1d6;">(</span>yes/no<span style="color: #a9b1d6;">)</span> <span style="color: #a9b1d6;">[</span>yes<span style="color: #a9b1d6;">]</span>: yes
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Server port <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64; font-weight: bold;">1</span> to <span style="color: #ff9e64; font-weight: bold;">65535</span><span style="color: #a9b1d6;">)</span> <span style="color: #a9b1d6;">[</span><span style="color: #ff9e64; font-weight: bold;">6697</span><span style="color: #a9b1d6;">]</span>:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Server password <span style="color: #a9b1d6;">(</span>probably empty<span style="color: #a9b1d6;">)</span>:
+<span style="color: #a9b1d6;">[</span> ?? <span style="color: #a9b1d6;">]</span> Initial channels:
+<span style="color: #a9b1d6;">[</span> ** <span style="color: #a9b1d6;">]</span> Enabled network modules <span style="color: #a9b1d6;">[</span>simple_away<span style="color: #a9b1d6;">]</span>
+</pre>
+</div>
+
+<p>
+First, it&rsquo;s important that <code>Listen on port</code> is set to the same port that you exposed in your Docker command. The Docker command only binds the container&rsquo;s port to your hosts port, but the <code>Listen on port</code> is what actually tells ZNC to listen on that port inside the container. Additionally, we want to set <code>Listen using SSL</code> to <code>no</code> because ZNC itself is not going to be handling SSL in our setup, Nginx will do that. ZNC should only be exposed internally on the server, so encryption is not necessary. Finally we need to create an admin user that we will use later to connect to the ZNC web front end. You can set the username and password to whatever you wish, but keep in mind that this will be publicly accessible on the web, so probably avoid something like <code>user: admin pass: so-secret</code>. It is convenient to setup the network settings now because it will be mostly applying default settings, but you can also set it up in the web front end later if you wish.
+</p>
+
+<p>
+Once this is setup, you can run this command:
+</p>
+<div class="org-src-container">
+<pre class="src src-bash">docker run -d <span style="color: #9ece6a;">\</span>
+  --restart unless-stopped <span style="color: #9ece6a;">\</span>
+  --name znc-server <span style="color: #9ece6a;">\</span>
+  -p 12345:12345 <span style="color: #9ece6a;">\</span>
+  -v znc-cfg:/znc-data <span style="color: #9ece6a;">\</span>
+  znc
+</pre>
+</div>
+
+<p>
+This command will run ZNC in a Docker container. <code>--restart unless-stopped</code> will make it so the container will automatically restart if the process ends, for example if your server restarts. <code>--name znc-server</code> will name the container. If you don&rsquo;t do this it will still work, but Docker will automatically assign a silly name like <code>wonky_wombat</code> or something. Naming the container makes things easier if you want to make changes later. <code>-p 12345:12345</code> will expose the port 12345 <i>inside</i> the container to the host <i>outside</i> the container. This makes ZNC accessible from outside the container. The ports don&rsquo;t need to be the same, and you can choose whichever port you would like in the available range of non-privileged ports: <code>1024-49151</code>. The main thing is if you have another process running on a port you cannot reuse it, so you have to make sure the port is available. If there is a conflict, you can run <code>lsof -i :12345</code> to check what is running on port 12345 on your host, or more simply just choose a different port. Finally, <code>-v znc-cfg:/znc-data</code> means the container will use the volume we put our configuration file in earlier. If we don&rsquo;t do this, we will lose our configuration data when the container restarts.
+</p>
+</div>
+</div>
+<div id="outline-container-orgee5e942" class="outline-2">
+<h2 id="orgee5e942">Setting Up Nginx and SSL</h2>
+<div class="outline-text-2" id="text-orgee5e942">
+<p>
+Now that we have ZNC up and running, we need some way to access our ZNC process from outside our server. You can expose ZNC directly to the public internet, but it is common practice to route public traffic through a reverse proxy like Nginx or Caddy and have that handle directing the TCP and HTTP requests to your ZNC server. This also means that Nginx or another reverse proxy will handle SSL instead of ZNC, which is why we said no to SSL encryption in the initial ZNC configuration.
+</p>
+
+<p>
+Our first step will be to ensure that we have a FQDN (like irc.mysever.com)  pointing to our server. It is possible, but cumbersome to enable SSL without a FQDN, and in most cases not worth the effort. The <a href="https://wiki.znc.in/Reverse_Proxy">ZNC wiki</a> gives two options for this. You can either use a sub domain, for example <code>irc.myerver.com</code>, or you can use a route on an existing domain, such as <code>myserver.com/irc</code>. We are going to use the  sub domain method in our setup. Once the domain is pointed to our server&rsquo;s  IP and the ZNC server is running, we can make a location block like this in our nginx.conf file:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nil">server {
+    server_name irc.myserver.com;
+        location / {
+            proxy_pass http://[::1]:12345/;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+}
+</pre>
+</div>
+
+<p>
+This means that any http requests that Nginx gets to <code>irc.myserver.com</code> will be directed to port 12345 on our host machine where ZNC is listening because we added the Docker  <code>-p 12345:12345</code> flag and  we input for <code>Listen on port</code> when you ran <code>znc --makeconf</code> earlier. It will also forward the headers from the original request on to port 12345. Once we have reloaded Nginx and this takes effect, requests should already be routed correctly, but we still need to set up SSL before we can connect the ZNC via HTTP.
+</p>
+
+<p>
+While Nginx does not have built-in SSL like Caddy, it is fairly easy to set up. <a href="https://certbot.eff.org/">Certbot</a> will setup certificates for us and update our <code>nginx.conf</code> file to point to the correct certificates.
+</p>
+
+<p>
+At this point, you should be able to access the ZNC web front end, and you can input the username and password you input earlier to access the configuration for your ZNC server, but there is something else we need to do with Nginx. The location block we setup earlier listens specifically for HTTP and HTTPS requests on ports 80 and 443 respectively, which is exactly what the ZNC web front end uses, but the IRC protocol itself uses TCP protocol. Nginx needs a way to appropriately proxy TCP requests to ZNC. Furthermore, since port 443 is the standard port for HTTPS requests, we need  to  configure Nginx to listen for TCP requests on a different port. To do this, we need to create a stream block (you can find the documentation for this <a href="https://docs.nginx.com/nginx/admin-guide/load-balancer/tcp-udp-load-balancer/">here</a>) similar to this:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nil">stream {
+    upstream znc {
+        server [::1]:12345;
+    }
+
+    server {
+        listen 54321 ssl;
+        proxy_pass znc;
+
+        ssl_certificate /etc/letsencrypt/live/irc.domain.dev/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/irc.domain.dev/privkey.pem;
+    }
+}
+</pre>
+</div>
+
+<p>
+We need to create a <code>stream</code> block that defines a <code>server</code> and <code>upstream</code> block. The <code>server</code> defines the port Nginx will listen on with the  <code>listen</code> directive, which we set to port <code>54321</code> in this example. The <code>listen</code> directive also specifies that we are listening for SSL connections. We can use the same SSL certs that we created for the location block for the web front end earlier by simply copying the directives from our HTTP location block.  The <code>proxy_pass</code> directive passes that request on to the named <code>upstream znc</code> block defined above, which defines the internal port that Nginx should pass the TCP stream on to, 12345. The port defined here must match the port that we bound the Docker container to, which in our case was 12345. You can double check this by running <code>docker ps</code> and then under <code>PORTS</code> you should see something like <code>0.0.0.0:12345-&gt;12345/tcp, [::]:12345-&gt;12345/tcp</code>, which tells us that both IPv4 and IPv6 port 12345 inside the container is bound to the same port on the host. I used different ports, <code>54321</code> and <code>12345</code> here to make the distinction between the two, but they can be the same number. Another way to think of this, is that it&rsquo;s very similar to Docker <code>-p 12345:12345</code>; its binding TCP requests <i>outside</i> our host to the port <i>inside</i> our host.
+</p>
+
+<p>
+You might need to create a firewall rule to ensure that your firewall is not blocking port <code>54321</code>, or which ever port is defined by your <code>listen</code> directive. For example if you are using <code>ufw</code> you can use the command <code>ufw allow 54321/tcp</code> with root privileges which will allow Nginx to receive TCP requests on port <code>54321</code>.
+</p>
+
+<p>
+At this point we should be done with the work on the server itself and it&rsquo;s time to do some work on configuring ZNC to talk to an IRC server like Libera.
+</p>
+</div>
+</div>
+<div id="outline-container-orge23c769" class="outline-2">
+<h2 id="orge23c769">Configuring ZNC</h2>
+<div class="outline-text-2" id="text-orge23c769">
+<p>
+Now that everything is set up on the server, we should be able to navigate to <code>https://irc.myserver.com</code> on the public internet to access our ZNC configuration to do the final bits of work needed to connect to the Libera server.
+</p>
+
+<p>
+First and foremost, navigate to the <code>Global Settings</code> tab and scroll down to <code>skin</code> select <code>Forest</code>. This is by far and away the most important step so don&rsquo;t skip it!
+</p>
+
+<p>
+Next, we need to make sure that ZNC is correctly configured to connect to Libera. Select the <code>Your Settings</code> tab and scroll down to the <code>Networks</code> section. If we configured it during the <code>znc --makeconf</code> step, we should see Libera there already. We can click <code>Edit</code> to get further settings. This is where we will input all of the important information we need to log into Libera. Ensure that <code>SSL</code> is ticked and that the port is set correctly to <code>6697</code>, the default port for libera.chat.irc SASL connections. Finally, scroll down to the <code>Modules</code> section and tick the <code>sasl</code> module. Once everything is set, we can select <code>save and return</code> near the bottom of the page.
+</p>
+
+<p>
+Once we have saved these settings we should see <code>Network Modules (libera)</code> section with a <code>SASL</code> hyperlink. We need to click that and input our Libera Nickname and password. This allows ZNC to connect to Libera via SASL. At this point ZNC should be able to connect to Libera and all that is left is to connect to your ZNC server via Doom Emacs, or another client of your choosing.
+</p>
+</div>
+</div>
+<div id="outline-container-org5b934ae" class="outline-2">
+<h2 id="org5b934ae">Connecting with Doom Emacs</h2>
+<div class="outline-text-2" id="text-org5b934ae">
+<p>
+On Doom Emacs, to add custom configuration we can use <code>M x doom/open-private-config</code> to open up our personal configuration file. In order to connect to our server, we need to add something like the following:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-lisp">(after! circe
+  (set-irc-server! <span style="color: #9ece6a;">"znc/libera"</span>
+    (<span style="color: #bb9af7;">let*</span> ((auth (car (auth-source-search
+                       <span style="color: #f7768e;">:host</span> <span style="color: #9ece6a;">"irc.myserver.com"</span>
+                       <span style="color: #f7768e;">:port</span> <span style="color: #ff9e64; font-weight: bold;">54321</span>
+                       <span style="color: #f7768e;">:user</span> <span style="color: #9ece6a;">"StampChad"</span>
+                       <span style="color: #f7768e;">:require</span> '(<span style="color: #f7768e;">:user</span> <span style="color: #f7768e;">:secret</span>))))
+           (secret (plist-get auth <span style="color: #f7768e;">:secret</span>)))
+      `(<span style="color: #f7768e;">:host</span> <span style="color: #9ece6a;">"irc.myserver.com"</span>
+        <span style="color: #f7768e;">:port</span> <span style="color: #ff9e64; font-weight: bold;">54321</span>
+        <span style="color: #f7768e;">:tls</span> t
+        <span style="color: #f7768e;">:nick</span> <span style="color: #9ece6a;">"StampChad"</span>
+        <span style="color: #f7768e;">:pass</span> ,(<span style="color: #bb9af7;">if</span> (functionp secret) (funcall secret) secret)
+        <span style="color: #f7768e;">:channels</span> (<span style="color: #9ece6a;">"#stamp-collecting"</span>)))))
+</pre>
+</div>
+
+<p>
+This will connect to our ZNC server at <code>irc.myserver.com</code> port 54321. You might notice that instead of our plain text password, we are getting our password from our <code>authinfo.gpg</code> file. The process of using an authinfo.gpg file is explained in this excellent <a href="https://systemcrafters.net/emacs-tips/using-encrypted-passwords/">blog post</a>. Simply put, you need to ensure you have a gpg key generated by running <code>gpg --full-generate-key</code> and following the prompts and then simply create a file called <code>~/.authinfo.gpg</code> and input your information in the following format:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nil">machine irc.myserver.com login StampChad password StampChad/libera:s0-s3cr3t port 54321
+</pre>
+</div>
+
+<p>
+In the above example, the <code>let*</code> binds the return value of <code>auth-source-serach</code> to the <code>secret</code> variable. Instead of  passing our plain text password to <code>:pass</code>, we wrap our Circe config in the <code>let*</code> and then we pass it <code>(if (functionp secret) (funcall secret) secret)</code>. This checks whether <code>auth-source-search</code> returned a function or a string. If it returned a function, <code>(funcall secret)</code> calls <code>secret</code> as a function and returns our password, otherwise it just returns the value of <code>secret</code>, which should be a our password as a string.
+</p>
+</div>
+</div>
+<div id="outline-container-org627b2d1" class="outline-2">
+<h2 id="org627b2d1">Wrap Up</h2>
+<div class="outline-text-2" id="text-org627b2d1">
+<p>
+And that&rsquo;s it! We should now be able to run <code>M-x =irc</code>, the Doom Emacs command to run Circe, and we are ready to chat. ZNC will stay connected and update us about chat that we have  missed in the channels we are connected to. We can also connect with as many clients we want. There are a lot of ZNC modules to explore and this is really just scratching the service, but getting a basic set up going is a big first step.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Paper Picker Update</title>
+      <pubDate>Sat, 16 Aug 2025 05:12:00 -0300</pubDate>
+      <guid>/posts/paper-picker-update.html</guid>
+      <link>/posts/paper-picker-update.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+Several months ago after switching to <a href="https://hypr.land/">Hyrpland,</a> I started using their wallpaper utility, <a href="https://wiki.hypr.land/Hypr-Ecosystem/hyprpaper/">Hyprpaper</a>.  I have multiple monitors and like to spice my life up by cycling through wallpapers once an hour or so. I created some <a href="https://github.com/Naokotani/dotnao/blob/main/hypr/scripts/start_paper.sh">bash scripts</a> and a cron job to run the scripts on a timely basis, and choose which directory to pull the images from using wofi. While it worked, it had several problems associated with it. I had to hard code the monitor names into the script, and when I switched between computers it was a nuisance to have to update this. The algorithm to get random non-duplicated wallpapers was also not very good. I had used a while loop to continuously call a function until the names didn&rsquo;t match. The logic to add a third monitor was also buggy, and it was difficult to get it to deal with situations where there were fewer wallpapers in the directory than monitors.  But it sort of worked! so for several months I left it alone.
+</p>
+
+<p>
+Recently I got a new monitor and added a third monitor, and I decided to fix the script. I didn&rsquo;t want to  run into these problems again when changing my monitor configuration.
+</p>
+<div id="outline-container-org12ee5f3" class="outline-2">
+<h2 id="org12ee5f3">Getting the Monitors</h2>
+<div class="outline-text-2" id="text-org12ee5f3">
+<p>
+One of the issues with the old script was that the monitor names were hard coded. Any time I changed computers or monitors it would break, and I  had to update the script to work with my  new setup. I couldn&rsquo;t just stick it in version control and forget about it.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-bash">
+<span style="color: #51587a;"># </span><span style="color: #51587a;">Use hyprctl to get a list of monitors and store them in an array.</span>
+readarray -t monitors &lt; &lt;<span style="color: #a9b1d6;">(</span>hyprctl monitors | awk <span style="color: #9ece6a;">'$1 == "Monitor" { print $2 }'</span><span style="color: #a9b1d6;">)</span>
+<span style="color: #c0caf5;">num_monitors</span>=$<span style="color: #a9b1d6;">{</span>#<span style="color: #c0caf5;">monitors</span><span style="color: #7aa2f7;">[</span>@<span style="color: #7aa2f7;">]</span><span style="color: #a9b1d6;">}</span>
+
+</pre>
+</div>
+
+<p>
+This uses awk to parse the output of the hyprctl utility that lists information about the  monitors connected to your system  in a format that is  trivially read by awk. The <code>&lt; &lt;( )</code>   is used for <a href="https://www.gnu.org/software/bash/manual/html_node/Process-Substitution.html">process substitution</a>. This creates a virtual file of the output from awk  and passes that to readarray, which expects a file instead of a string.  This creates an array from the output of awk. finally, <code>${#monitors[@]}</code> gets the length of the newly created array and stores it as a variable for later use.
+</p>
+</div>
+</div>
+<div id="outline-container-org630d547" class="outline-2">
+<h2 id="org630d547">New Random Wallpaper Logic</h2>
+<div class="outline-text-2" id="text-org630d547">
+<p>
+I also updated the logic to get a random wallpaper. As  I said in the previous <a href="https://chris-hughes.dev/blog/paper-picker.html">post</a>, it is possible to use something like <code>shuf -n num_monitors</code> to get a list of random wallpaper, but I would still need to handle cases where there weren&rsquo;t enough wallpapers per the number of monitors, and I thought it would be more fun to create the logic myself (Hint: it was).
+</p>
+
+<div class="org-src-container">
+<pre class="src src-bash">
+<span style="color: #51587a;"># </span><span style="color: #51587a;">Get a random paper, add it to the array of papers to be used, and</span>
+<span style="color: #51587a;"># </span><span style="color: #51587a;">remove it from the array of possible papers to choose from only if</span>
+<span style="color: #51587a;"># </span><span style="color: #51587a;">there is at least one remaining in the array.</span>
+<span style="color: #bb9af7;">function</span> <span style="color: #7aa2f7;">get_random_paper</span><span style="color: #a9b1d6;">()</span> <span style="color: #a9b1d6;">{</span>
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">Get a random index from from the length of the papers array.</span>
+    <span style="color: #f7768e;">local</span> <span style="color: #c0caf5;">random</span>=$<span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">(</span>RANDOM % $<span style="color: #73daca;">{</span>#<span style="color: #c0caf5;">papers</span><span style="color: #a9b1d6;">[</span>@<span style="color: #a9b1d6;">]</span><span style="color: #73daca;">}</span><span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span>
+    <span style="color: #f7768e;">local</span> <span style="color: #c0caf5;">paper</span>=$<span style="color: #7aa2f7;">{</span><span style="color: #c0caf5;">papers</span><span style="color: #ff9e64;">[</span>random<span style="color: #ff9e64;">]</span><span style="color: #7aa2f7;">}</span>
+    <span style="color: #51587a;">#</span><span style="color: #51587a;">This initializes an empry array to appened to below</span>
+    <span style="color: #f7768e;">local</span> <span style="color: #c0caf5;">temp_array</span>=<span style="color: #7aa2f7;">()</span>
+
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">Create a temporary array of all remaining wallpapers except for the one</span>
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">that was just choosen This will remove it from the array so it will not</span>
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">be duplicated later.</span>
+    <span style="color: #bb9af7;">for</span> p<span style="color: #bb9af7;"> in</span> <span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{papers[@]}</span><span style="color: #9ece6a;">"</span>; <span style="color: #bb9af7;">do</span>
+        <span style="color: #bb9af7;">if</span> <span style="color: #7aa2f7;">[</span> <span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">paper</span><span style="color: #9ece6a;">"</span> != <span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">p</span><span style="color: #9ece6a;">"</span> <span style="color: #7aa2f7;">]</span>; <span style="color: #bb9af7;">then</span>
+            <span style="color: #c0caf5;">temp_array</span>+=<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">p</span><span style="color: #9ece6a;">"</span><span style="color: #7aa2f7;">)</span>
+        <span style="color: #bb9af7;">fi</span>
+    <span style="color: #bb9af7;">done</span>
+
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">If temp_array is length 0, then all papers have been removed.</span>
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">If so, it should not be removed from the array of avaialable</span>
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">wallpapers. This wallpaper will then be duplicated on all remaining</span>
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">monitors. If more wallpapers remain, set the papers array to newly</span>
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">created array.</span>
+    <span style="color: #bb9af7;">if</span> <span style="color: #7aa2f7;">[</span> <span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{#temp_array[@]}</span><span style="color: #9ece6a;">"</span> -gt <span style="color: #ff9e64; font-weight: bold;">0</span> <span style="color: #7aa2f7;">]</span>; <span style="color: #bb9af7;">then</span>
+        <span style="color: #c0caf5;">papers</span>=<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{temp_array[@]}</span><span style="color: #9ece6a;">"</span><span style="color: #7aa2f7;">)</span>
+    <span style="color: #bb9af7;">fi</span>
+
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">Add the selected wallpaper to the array of papers to be used.</span>
+    <span style="color: #c0caf5;">papers_array</span>+=<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">paper</span><span style="color: #9ece6a;">"</span><span style="color: #7aa2f7;">)</span>
+<span style="color: #a9b1d6;">}</span>
+
+<span style="color: #51587a;"># </span><span style="color: #51587a;">Run the random wallpaper function once per avaialable monitor</span>
+<span style="color: #bb9af7;">for</span> <span style="color: #a9b1d6;">(</span><span style="color: #7aa2f7;">(</span><span style="color: #c0caf5;">i</span> = <span style="color: #ff9e64; font-weight: bold;">0</span>; i &lt; num_monitors; i++<span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>; <span style="color: #bb9af7;">do</span>
+    get_random_paper
+<span style="color: #bb9af7;">done</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgc922848" class="outline-2">
+<h2 id="orgc922848">Additional Small Fixes</h2>
+<div class="outline-text-2" id="text-orgc922848">
+<p>
+I made some additional small fixes. I was changing directory in the script to run commands, but I updated it be directory agnostic by setting the location of the required files as a variable at beginning of the script. The only thing that should need to change about the script is updating this if the hypr config files are not located in the default location. Additionally, I used <code>find</code> with <code>readarray</code> to create the array of the absolute file paths to the wallpaper files.
+</p>
+
+<p>
+I also ran <a href="https://github.com/koalaman/shellcheck">ShellCheck</a>, which recommended splitting the export of the hyprlctl instance into two lines, one to get the instance, one to export it, and pointed out some spots where I had forgotten to quote variables.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Emissions Tracker</title>
+      <pubDate>Mon, 04 Aug 2025 10:09:00 -0300</pubDate>
+      <guid>/posts/emissions-tracker.html</guid>
+      <link>/posts/emissions-tracker.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+I have recently launched a new website, <a href="https://emissionstracker.ca">emissionstracker.ca</a> (<a href="https://github.com/r-scoville/atlantic-emissions-map/tree/main">repo</a>), with two colleagues, <a href="https://github.com/r-scoville">Rose Scoville</a> and <a href="https://github.com/Richardson902">Nick Richardson</a>. Rose and Nick were primarily focused on the front end and visual design, while I  focused on the back end, server, containerization, and design of the overall stack. The data for the application is taken from <a href="https://open.canada.ca/data/en/dataset/a8ba14b7-7f23-462a-bdbb-83b0ef629823">open source data</a> provided by the Canadian federal government on greenhouse gas emitters. Users can search for emitters by type, year, facility type, or province.
+</p>
+<div id="outline-container-orgacc26bc" class="outline-2">
+<h2 id="orgacc26bc">The Stack</h2>
+<div class="outline-text-2" id="text-orgacc26bc">
+<p>
+This application utilizes <a href="https://spring.io/projects/spring-framework">Java Spring</a> framework for the API, <a href="https://react.dev/">React</a> for the front end and <a href="https://www.postgresql.org/">PostgreSQL</a> for persistence. For development, the React is served by <a href="https://vite.dev">Vite</a>, but for production, JavaScript is served by <a href="https://nginx.org/">Nginx</a> as static files. The entire application is containerized in 4 separate services: Spring, React/Vite, React/Nginx, and PostgreSQL. The front end uses <a href="https://leafletjs.com/">Leaflet JS</a>  to generate the map and cluster groupings.
+</p>
+</div>
+</div>
+<div id="outline-container-org6ffc12b" class="outline-2">
+<h2 id="org6ffc12b">Data Set Control</h2>
+<div class="outline-text-2" id="text-org6ffc12b">
+<p>
+Initially when I was writing the application, I could only have one dataset in the database at any given time. If a new dataset was uploaded, the old needed to be deleted. This meant that if a new dataset was uploaded and, for some reason, did not parse correctly, perhaps as a result of changes in the upstream data source, then the old data could potentially be lost; rendering the application unusable until the problem is fixed. I created a data set table in the database to resolve this. Each time new data is uploaded, metadata about the dataset is stored in this table. Additionally, an &ldquo;active&rdquo; boolean column is set to true if it is intended to be sent to the front end, and queries return only rows that have the active data set foreign key in the dataset column. If the application is functioning as expected, the old dataset can then be deleted, and if not, it is easy to roll back to the previous dataset until the problem is resolved.
+</p>
+</div>
+</div>
+<div id="outline-container-org00102ac" class="outline-2">
+<h2 id="org00102ac">Caching</h2>
+<div class="outline-text-2" id="text-org00102ac">
+<p>
+A major drawback in the application is that the amount of processing required to fetch the data is fairly significant. The application makes a SQL query for the data for each province, and then calculates the aggregate emissions for each emitter based on the year or years selected by the user. Given the limited server resources,  response times for the data made the application feel extremely unresponsive. The solution for this was to enable caching on the service that returns the DTO. The data changes infrequently, as little as once a year,  making this a perfect use case for caching the JSON data. To accurately invalidate the cached data, I annotated the function that sets the active dataset to invalidate the cache when a new dataset is activated. This way, up-to-date data is always returned, while ensuring that data is cached as long as possible. This lowered the response time from 4k to 5k ms to 50-100 ms during testing.
+</p>
+</div>
+</div>
+<div id="outline-container-orgaabbeb8" class="outline-2">
+<h2 id="orgaabbeb8">What&rsquo;s next?</h2>
+<div class="outline-text-2" id="text-orgaabbeb8">
+<p>
+Aside from minor bug fixes and improvements, I would like to make a version 2 that covers the whole country, but this will significantly increase the amount of data that the back end needs to process. Caching the data will assist greatly in resolving this problem, but a further solution would be to attempt to determine which region the user is in when they load the app and load that region first making the app usable before loading the data for the rest of the country.  In the meantime, I will be moving on to other projects for a while. Hopefully, I will find some time to work on <a href="https://chris-hughes.dev/blog/nuts.html">NUTS</a> a bit more!
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Nuts</title>
+      <pubDate>Sun, 16 Feb 2025 10:02:00 -0400</pubDate>
+      <guid>/posts/nuts.html</guid>
+      <link>/posts/nuts.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <div id="outline-container-org227ea24" class="outline-2">
+<h2 id="org227ea24">What&rsquo;s NUTS?</h2>
+<div class="outline-text-2" id="text-org227ea24">
+<p>
+<a href="https://github.com/Naokotani/nuts">NUTS</a>, Naokotani&rsquo;s Unusable Text Software (I am also playing with the idea of PEANUTS, Portable Executable Application: Naokotani&rsquo;s Unusable Text Software), is my new hobby coding project to create a rudimentary TUI text editor similar to Vi or Nano in C. The plan is to create a text editor that stores text in a <a href="https://en.wikipedia.org/wiki/Rope_(data_structure)">rope-like</a> data structure based on logical text divisions; buffers, lines and words (&ldquo;words&rdquo; are really text snippets, they can be punctuation, white space, etc.). A linked list of buffers (IE, vim, Emacs buffers etc.) points to linked lists of lines, which point to linked lists of words, which contain the strings that make up the text buffer. The intention is not to create the latest greatest vscode competitor, but to do a deep dive into strategies to store text in computers at a relatively low level.
+</p>
+</div>
+</div>
+<div id="outline-container-orgd0c15c7" class="outline-2">
+<h2 id="orgd0c15c7">Why This?</h2>
+<div class="outline-text-2" id="text-orgd0c15c7">
+<p>
+I was recently doing some work implementing a simple linked list in C along with associated functions for working with the data structure. The basic implementation was not very interesting, so I decided to see what other interesting directions I could take the code in. Initially the linked list stored integers, but I started to play with storing dynamic character pointers in the linked list. Next I implemented the functions as Clojure inspired recursive functions (functions like first, rest). Once I had this working with small basic hard coded strings,  I created a few simple functions to parse text and place it into my linked list. I fed it some books like the King James Bible and Moby Dick (no rhyme or reason here, its just what came up on Project Gutenberg), and to my utter shock and horror,  it instantly crashed with a segmentation fault. The issue was that the recursive functions were causing stack overflows when I was feeding them these longer texts (I believe Moby Dick parsed out to somewhere around 280 000 words and the program got to around 90 000 and got very sad). After some investigation I found that GCC actually supports tail call optimizations as long as you pass the -O2 flag and the return of the recursive function is the last piece of logic in the function. In order to make the tail call optimization work, I had to jump through some hoops and the code got a bit messy, but it worked, and performed pretty well. I didn&rsquo;t bench mark it, but it was able to parse Moby Dick, put it in a linked list, a recursively copy the list to pull out a random quote in a split second.
+</p>
+
+<p>
+This project, while interesting, didn&rsquo;t feel like it was going anywhere. I would like to spruce up the UI a little bit for creating quotes, but programs that do nothing put pull random quotes out of .txt files are not exactly in hot demand at the moment. Furthermore, the tail call optimization was fun to explore, but I had to bend over backwards to conform the functions to it&rsquo;s requirements. I do think that there are niche situations where it might be helpful, so its nice to know how it works and some of the pitfalls of recursion in C, but there are costs associated with it as well.
+</p>
+
+<p>
+I realized at some point that what I had was already an extremely rudimentary form of text editor. It could only operate on words and couldn&rsquo;t manipulate white space, but I was able to make arbitrary changes to long passages of text fairly efficiently. By extending the idea up from the word to the line and buffer and down from the word to the character I realized I could create a rudimentary text editor with the knowledge I had gained. More surprisingly, this happened to be at least approximately how text editors often actually work. Sadly, the recursive functions wouldn&rsquo;t make it to the next step. There is already infinite complexity to explore within the paradigm of a text editor without needing to arbitrarily complicate it.
+</p>
+</div>
+</div>
+<div id="outline-container-org89638c7" class="outline-2">
+<h2 id="org89638c7">Where is NUTS in the Nowness of time?</h2>
+<div class="outline-text-2" id="text-org89638c7">
+<p>
+So far I have created the basic project structure using a template provided by <a href="https://github.com/ThrowTheSwitch/Unity">Unity</a> testing framework and created the basic outline of the types I will need. I have started working primarily in <a href="https://github.com/Naokotani/nuts/blob/main/src/Word.c">Word.c</a> where I am building out the functions needed to manipulate strings. The ability to add and delete characters and to add and remove regions of text. The following snippet gives a good overview of my approach and is pulled largely from my <code>addString()</code> function in <code>Word.c</code>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span style="color: #51587a;">// </span><span style="color: #51587a;">Save the start index.</span>
+<span style="color: #c0caf5;">int</span> <span style="color: #c0caf5;">index</span> = startIndex;
+
+<span style="color: #51587a;">// </span><span style="color: #51587a;">Get length of the sub string to copy over from the</span>
+<span style="color: #51587a;">// </span><span style="color: #51587a;">difference of the indicies</span>
+<span style="color: #c0caf5;">int</span> <span style="color: #c0caf5;">length</span> = endIndex - startIndex;
+
+<span style="color: #51587a;">// </span><span style="color: #51587a;">Decrement the startIndex until it reaches zero. Increment</span>
+<span style="color: #51587a;">// </span><span style="color: #51587a;">and copy the derefenced pointer to the new string.</span>
+<span style="color: #bb9af7;">while</span> <span style="color: #a9b1d6;">(</span>startIndex-- &amp;&amp; <span style="color: #7aa2f7;">(</span>*newStrPtr++ = *oldStrPtr++<span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+    ;
+
+<span style="color: #51587a;">// </span><span style="color: #51587a;">Copy the newStr from the new string passed as an argument to the fuction.</span>
+<span style="color: #51587a;">// </span><span style="color: #51587a;">Because the pointer was already incremented and hasn't been reset, its</span>
+<span style="color: #51587a;">// </span><span style="color: #51587a;">already in the correct postion to start copying.</span>
+<span style="color: #bb9af7;">while</span> <span style="color: #a9b1d6;">(</span><span style="color: #7aa2f7;">(</span>*newStrPtr++ = *inputString++<span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+    ;
+
+<span style="color: #51587a;">// </span><span style="color: #51587a;">Increment the index by the length of the copied String.</span>
+<span style="color: #51587a;">// </span><span style="color: #51587a;">This can be used to determine how much if any of the old</span>
+<span style="color: #51587a;">// </span><span style="color: #51587a;">string remains to be copied.</span>
+index += length;
+
+<span style="color: #51587a;">// </span><span style="color: #51587a;">I need to decrement here because the pointer is after the '\0'</span>
+<span style="color: #51587a;">// </span><span style="color: #51587a;">character because of the final increment after the while fails in</span>
+<span style="color: #51587a;">// </span><span style="color: #51587a;">the preceeding loop.</span>
+incNew--;
+
+<span style="color: #51587a;">// </span><span style="color: #51587a;">If more of the string remains, append it to the to new string</span>
+<span style="color: #51587a;">// </span><span style="color: #51587a;">I could also use a while loop, but strcpy internally uses the</span>
+<span style="color: #51587a;">// </span><span style="color: #51587a;">same approach, so it works well to tack on the last bit.</span>
+<span style="color: #bb9af7;">if</span> <span style="color: #a9b1d6;">(</span>index &lt; <span style="color: #7aa2f7;">(</span><span style="color: #c0caf5;">int</span><span style="color: #7aa2f7;">)</span>word-&gt;size<span style="color: #a9b1d6;">)</span> <span style="color: #a9b1d6;">{</span>
+    oldStrPtr += length;
+    strcpy<span style="color: #7aa2f7;">(</span>incNew, incOld<span style="color: #7aa2f7;">)</span>;
+<span style="color: #a9b1d6;">}</span>
+
+</pre>
+</div>
+
+<p>
+I took this logic for copying strings from &ldquo;The C Programming Language&rdquo; by K &amp; R (especially pages 86-88), which describes the logic in detail and is an interesting read. I could make more liberal use of memset or strcpy, but especially in the case of strcpy, the implementation used in the GCC source code uses a nearly identical approach, so I don&rsquo;t think there is  huge advantage to using them over simple while loops. This approach makes it easier to save the position of the pointer for further operations. The function to delete a region of a string uses the same approach. It copies up the start index, increments the pointer by end index minus start index and copies what, if anything, remains after the deleted region.
+</p>
+</div>
+</div>
+<div id="outline-container-org81f8156" class="outline-2">
+<h2 id="org81f8156">What about Performance!</h2>
+<div class="outline-text-2" id="text-org81f8156">
+<p>
+After doing a bit reading about ropes, I realized that they tend to be immutable and favor statically sized arrays, while my implementation uses malloc to assign memory to the character pointers. This prompted me to do a little bit of investigating with some very rudimentary benchmarking programs.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-C"><span style="color: #7dcfff; font-weight: bold;">#define</span> <span style="color: #c0caf5;">ITERATIONS</span> <span style="color: #ff9e64; font-weight: bold;">1000000</span>
+
+<span style="color: #c0caf5;">int</span> <span style="color: #7aa2f7;">main</span><span style="color: #a9b1d6;">(</span><span style="color: #c0caf5;">void</span><span style="color: #a9b1d6;">)</span> <span style="color: #a9b1d6;">{</span>
+    <span style="color: #c0caf5;">char</span> <span style="color: #c0caf5;">testTemplate</span><span style="color: #7aa2f7;">[]</span> = <span style="color: #9ece6a;">"Hello, World!"</span>;
+    <span style="color: #c0caf5;">float</span> <span style="color: #c0caf5;">fixedStartTime</span> = <span style="color: #7aa2f7;">(</span><span style="color: #c0caf5;">float</span><span style="color: #7aa2f7;">)</span>clock<span style="color: #7aa2f7;">()</span> / <span style="color: #ff9e64;">CLOCKS_PER_SEC</span>;
+
+    <span style="color: #bb9af7;">for</span> <span style="color: #7aa2f7;">(</span><span style="color: #c0caf5;">int</span> <span style="color: #c0caf5;">i</span> = <span style="color: #ff9e64; font-weight: bold;">0</span>; i &lt; <span style="color: #ff9e64;">ITERATIONS</span>; i++<span style="color: #7aa2f7;">)</span> <span style="color: #7aa2f7;">{</span>
+        <span style="color: #c0caf5;">char</span> <span style="color: #c0caf5;">testChar</span><span style="color: #ff9e64;">[</span><span style="color: #ff9e64; font-weight: bold;">14</span><span style="color: #ff9e64;">]</span>;
+        strcpy<span style="color: #ff9e64;">(</span>testChar, testTemplate<span style="color: #ff9e64;">)</span>;
+    <span style="color: #7aa2f7;">}</span>
+
+    <span style="color: #c0caf5;">float</span> <span style="color: #c0caf5;">fixedEndTime</span> = <span style="color: #7aa2f7;">(</span><span style="color: #c0caf5;">float</span><span style="color: #7aa2f7;">)</span>clock<span style="color: #7aa2f7;">()</span> / <span style="color: #ff9e64;">CLOCKS_PER_SEC</span>;
+    <span style="color: #c0caf5;">float</span> <span style="color: #c0caf5;">fixedTimeElapsed</span> = fixedEndTime - fixedStartTime;
+    <span style="color: #c0caf5;">float</span> <span style="color: #c0caf5;">mallocStartTime</span> = <span style="color: #7aa2f7;">(</span><span style="color: #c0caf5;">float</span><span style="color: #7aa2f7;">)</span>clock<span style="color: #7aa2f7;">()</span> / <span style="color: #ff9e64;">CLOCKS_PER_SEC</span>;
+
+    <span style="color: #bb9af7;">for</span> <span style="color: #7aa2f7;">(</span><span style="color: #c0caf5;">int</span> <span style="color: #c0caf5;">i</span> = <span style="color: #ff9e64; font-weight: bold;">0</span>; i &lt; <span style="color: #ff9e64;">ITERATIONS</span>; i++<span style="color: #7aa2f7;">)</span> <span style="color: #7aa2f7;">{</span>
+        <span style="color: #c0caf5;">char</span> *<span style="color: #c0caf5;">testChar</span> = malloc<span style="color: #ff9e64;">(</span><span style="color: #ff9e64; font-weight: bold;">14</span> * <span style="color: #bb9af7;">sizeof</span><span style="color: #73daca;">(</span><span style="color: #c0caf5;">char</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>;
+        strcpy<span style="color: #ff9e64;">(</span>testChar, testTemplate<span style="color: #ff9e64;">)</span>;
+    <span style="color: #7aa2f7;">}</span>
+
+    <span style="color: #c0caf5;">float</span> <span style="color: #c0caf5;">mallocEndTime</span> = <span style="color: #7aa2f7;">(</span><span style="color: #c0caf5;">float</span><span style="color: #7aa2f7;">)</span>clock<span style="color: #7aa2f7;">()</span> / <span style="color: #ff9e64;">CLOCKS_PER_SEC</span>;
+    <span style="color: #c0caf5;">float</span> <span style="color: #c0caf5;">mallocTimeElapsed</span> = mallocEndTime - mallocStartTime;
+
+    printf<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"Fixed time elapsed: %f\n"</span>, fixedTimeElapsed<span style="color: #7aa2f7;">)</span>;
+    printf<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"Malloc time elapsed: %f\n"</span>, mallocTimeElapsed<span style="color: #7aa2f7;">)</span>;
+    <span style="color: #bb9af7;">return</span> <span style="color: #ff9e64; font-weight: bold;">0</span>;
+<span style="color: #a9b1d6;">}</span>
+</pre>
+</div>
+
+<p>
+This created an output on my laptop of approximately 0.002 seconds for copying the fixed size array and 0.02 seconds for the malloc version without any compiler optimizations (I also tried it with calloc, which  was slightly slower, but the difference was quite negligible). This is a huge difference in performance between the two, but its not really a realistic scenario, and there are a lot of other considerations.
+</p>
+
+<p>
+For example, either the fixed arrays would need to be quite large, yet often would only need to hold a small number of characters, or they would be small and then it would be a common scenario where they would need to be split into multiple nodes in the rope structure to hold single blocks of text. Operations that print a single word might require multiple string copies distributed between multiple nodes. That being said, I do think it is likely that you could find a sweet spot where the array was not too large, but in which the vast majority of words could fit. Additionally, making strings dynamically sized greatly simplifies higher level navigation functions such as next word, delete word etc. If strings were distributed across multiple nodes, even very infrequently, a next word function would need to be able to navigate multiple nodes until it determined it was at the node that held the end of the string for the word.
+</p>
+
+<p>
+I attempt to mitigate this problem somewhat by over sizing the memory allocated to the strings with malloc. The <code>addChar()</code> and <code>delChar()</code> functions, theoretically the ones that will be used for normal one-character-at-a-time (IE. regular typing vs. a put-from-kill-ring style function for example), will only need to resize the buffer once every n number of inputs where n is the <code>BUFFER_SIZE</code> defined. If adding a new character would make the word size equal to a multiple of <code>BUFFER_SIZE</code>, reallocarray is used to resize the buffer appropriately by increasing its size by <code>BUFFER_SIZE</code>.  Later on it will be interesting to play with that value and see how it would perform in different real world scenarios, but for now I&rsquo;m left only speculating. Out of curiosity, I made a similar program and, without compiler optimizations, it was able to put a single character in a static and dynamic char array using array indexing 100 million times, and while the static array was faster, the difference was trivial. Let&rsquo;s just say I don&rsquo;t think you will notice a big difference unless you spend WAY too much time on monkeytype.com.
+</p>
+
+<p>
+All this speculating is interesting, but ultimately largely academic because performance should be well within the range of the acceptable even for very large text files, and certainly more than acceptable for an unusable text software interface. Right now my biggest concern is creating functioning logic so I can start to work on the myriad problems of user input, saving, loading, managing buffers and so on.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Bun Blog Update</title>
+      <pubDate>Thu, 13 Feb 2025 09:10:00 -0400</pubDate>
+      <guid>/posts/bun-blog-update-2.html</guid>
+      <link>/posts/bun-blog-update-2.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <div id="outline-container-org7e74a7f" class="outline-2">
+<h2 id="org7e74a7f">The problem</h2>
+<div class="outline-text-2" id="text-org7e74a7f">
+<p>
+When I created my blog app, I decided to use <a href="https://pm2.keymetrics.io/">PM2</a> to manage the node application that runs my blog. This created a few small problems. First my blog is a Node application, which PM2  handles quite well, but my other applications are a mixture of Rust binaries, Java jars, and Node applications. Additionally, my blog relied on git to pull some data from a git repository, which was triggered by a shell script. This meant that I had to manage PM2 processes for node, systemd processes for Rust and Java and Nginx, cron jobs for shell scripts, I had to figure out my development environment and copy files to the server in a convenient way. Suffice it to say this was all becoming something of a mess. The problem came to the forefront when I had an issue with PM2 where I had neglected to restart it after an update, which caused the running PM2 processes and the version of PM2 on the server to be out of sync, which, I assume, was the cause of the PM2 processes continually using virtually my entire CPU. Once I had realized the issue and queried PM2 about how its day was going, it was an easy issue to fix, but it was sort of the straw that broke the camel&rsquo;s back on getting me to reorganize how my server was managed.
+</p>
+</div>
+</div>
+<div id="outline-container-orgd660253" class="outline-2">
+<h2 id="orgd660253">Docker for Everything!</h2>
+<div class="outline-text-2" id="text-orgd660253">
+<p>
+Predictably, I decided to just dockerize everything. There wasn&rsquo;t anything super interesting here aside from how I set up my cron job within the containers. Previously, I had installed git on my server, and a shell script that lived in my filesystem would do a git pull and copy the relevant files to where they needed to go. Instead, I decided that it would be better to have this managed in a separate image and push it to Docker Hub separately. This way I could make small changes to it without affecting the main application, which could function independently. First, I created a simple shell script:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-bash"><span style="color: #c0caf5;">cd</span> /usr/src/repo-code
+<span style="color: #c0caf5;">git</span> pull https://repos-r-us.com/some-repo.git
+<span style="color: #c0caf5;">mkdir</span> -p /usr/app/static/json
+<span style="color: #c0caf5;">cp</span> /usr/src/repo-code/websites.json /usr/app/static/json/
+</pre>
+</div>
+
+<p>
+For the <code>Dockerfile</code>, I use an Alpine image and then install git, which is not included in the image, clone the repo, and create the cron job. The approach is more portable and appears to work well. I believe cron is installed on this Alpine image, so there is no need to install it independently.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-docker">FROM alpine:3.14
+RUN apk add --no-cache git
+WORKDIR /usr/src
+RUN git clone https://repos-r-us.com/some-repo.git
+COPY ./copy-json.sh /usr/scripts/
+RUN chmod +x /usr/scripts/copy-json.sh
+RUN mkdir /usr/websites
+RUN /usr/scripts/copy-repo.sh
+RUN echo "0 4 * * * /usr/scripts/copy-repo.sh" &gt; /etc/crontabs/root
+CMD ["crond", "-f"]
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgfb101a4" class="outline-2">
+<h2 id="orgfb101a4">Optimizations and the Future</h2>
+<div class="outline-text-2" id="text-orgfb101a4">
+<p>
+There were several other small optimizations. I minified the CSS with <a href="https://github.com/clean-css/clean-css">clean-css</a>, a node library for minifying CSS. Most of the clean-css documentation is devoted to writing a JavaScript application that uses clean-css as a library to minify the CSS, but it also provides a second node CLI application, and the same basic functionality can be achieved with a simple bash script. Clean-css has a long list of options and optimizations, but for a simple application, a lot of it feels overkill. This approach should be portable because the dependency is in the Bun application itself and, conveniently, Bun seems to detect that the dependency is in your project and you don&rsquo;t need to install it globally or give it an absolute path.  Additionally, I realized that I did not defer HTMX in the script tag, which was blocking my HTML from loading and other small optimizations.
+</p>
+
+<p>
+Moving forward, I&rsquo;ve considered setting up <a href="https://github.com/containrrr/watchtower">Watchtower</a> or something similar to manage the image updates, but for now I am happy with how everything works. In terms of content, I am hoping to start writing a lot more posts moving forward. Next up, I am going to do a short post on NUTS, my new C project.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Reagent</title>
+      <pubDate>Sat, 20 Apr 2024 03:33:00 -0300</pubDate>
+      <guid>/posts/reagent.html</guid>
+      <link>/posts/reagent.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+After having used Emacs for over five years now, I have been becoming increasingly interested in trying out Lisp dialects other than Emacs Lisp (or &ldquo;Elisp&rdquo;). My first impression of Lisp was one of confusion. I found it utterly incomprehensible, and most of my time spent configuring Emacs was copying and pasting snippets of code from other people&rsquo;s setups or documentation. In truth most of my Emacs configuration still is lifted from one place or another, but about six months ago I heard someone say &ldquo;everything in Elisp  is an expression&rdquo;, and for some reason hearing that short phrase made Elisp click for me. When I realized that what came between a set of parentheses was a function, or more accurately a symbolic expression, and that that expression returned  a value to the set of parentheses one level up, everything just clicked.
+</p>
+
+<p>
+Right away I started putting this new found knowledge to work by going back to parts of my Emacs configuration that I had not touched in a long time and fixing things up. I took my first crack at a minor mode by creating <a href="https://chris-hughes.dev/blog/emmet-react.html">emmet-react-mode</a> and worked a simple <a href="https://chris-hughes.dev/blog/bun-blog.html">Elisp function</a> into my blog workflow. I would still like to continue my work with Emacs Lisp, for example by creating a more fully featured blogging minor mode, yet I found myself intrigued by Lisp and finally ready to start exploring other Lisps.
+</p>
+<div id="outline-container-org8c0352b" class="outline-2">
+<h2 id="org8c0352b">Enter Clojure</h2>
+<div class="outline-text-2" id="text-org8c0352b">
+<p>
+I spent several months paralyzed by indecision before I actually started to write any code. I wanted to take the time to deliberate over which of the various Lisp dialects I would like to try first. I even briefly considered trying out <a href="https://fennel-lang.org/">Fennel</a> to do some work on my Neovim configuration, but I didn&rsquo;t use Neovim enough to find the motivation to try this (though I would be surprised if I didn&rsquo;t do this eventually). Finally I spent some time looking more seriously into Clojure and realized that it had several features that interested me.
+</p>
+
+<p>
+The main thing that stood out to me about Clojure was the runtime, or <i>runetimes</i>. Not only does it run on the ubiquitous Java Virtual Machine, but it can also compile down to the even more ubiquitous JavaScript. In addition to the runtime systems,  Clojure is also interoperable with both Java and JavaScript libraries: in short, all of the libraries. Clojure is also a functional style language, which intrigued me. I had been interested for some time to try out a functional language in addition to a Lisp, so I was effectively killing two birds with one stone by trying Clojure. Don&rsquo;t worry: I am a vegetarian, and no actual birds were harmed in the making of this application.
+</p>
+
+<p>
+Once I had decided on Clojure, I started reading <a href="https://www.braveclojure.com/">Clojure for the Brave and True</a>, which is both hilarious and a great book even it can be a bit dense at times, <a href="https://pragprog.com/titles/dswdcloj3/web-development-with-clojure-third-edition/">Web Development with Clojure</a>, which covers building a guestbook application with the <a href="https://luminusweb.com/">Luminus</a> framework, and consuming a healthy diet of Rich Hickey talks on YouTube.
+</p>
+
+<p>
+Normally I am an advocate for starting simple, but in the case of Clojure I find the process of building web applications a bit complicated to set up. The code required to set up a web application from scratch using <a href="https://github.com/ring-clojure/ring">Ring</a> and getting ClojureScript to play nicely and cross compile with Clojure is a bit daunting to a Clojure neophyte, let alone someone relatively new to programming in Lisp in any form. After spending some time with Luminus (and if I am being honest, finding all the boilerplate very confusing), I finally settled on making a single page <a href="https://reagent-project.github.io/">Reagent</a> application with the <a href="https://kit-clj.github.io/">Kit</a> framework. I would recommend trying Kit for someone who is interested to try out Clojure web development for the first time. I was able to get working with a simple hello world Reagent app within a few minutes and the project structure and boilerplate code is well laid out and relatively easy to understand. There are comments throughout that basically say &ldquo;Put code here&rdquo;.
+</p>
+</div>
+</div>
+<div id="outline-container-org2f26859" class="outline-2">
+<h2 id="org2f26859">IP Subnetting Calculator</h2>
+<div class="outline-text-2" id="text-org2f26859">
+<p>
+Deciding on the topic for my first Clojure/Script project was a little like putting on a blindfold and playing darts. I didn&rsquo;t really care what I made, partly because I knew that my first attempts with the language would probably be relatively naive, yet I wanted to make <i>something.</i> Several months ago I had played with the idea of making a subnetting calculator when I was working through some of the Cisco CCNA course content in Cisco Packet tracer. The way a subnet mask is applied to an IP address to create subnets intrigued me, and I thought that creating an application that displayed both the decimal notation information alongside the actual 32 bit representation of the IP addresses in binary form would be an excellent way to learn more about it and do a bit of an IPv4 deep dive. I did learn a bit more about subnets by doing the project, specifically how CIDR /31 and /32 subnets work alongside with their purpose in a network, so I think the project was well worth the time even for that.
+</p>
+
+<p>
+As expected, my implementation of the application was indeed quite naive, which led to a lot of issues throughout <a href="https://alembichead.com/ipcalc">the project</a> ( <a href="https://github.com/Naokotani/ipcalc">GitHub repo </a>), but it was quite instructive and will help me to build better Reagent applications in the future.
+</p>
+</div>
+<div id="outline-container-org42a80e6" class="outline-3">
+<h3 id="org42a80e6">Atoms</h3>
+<div class="outline-text-3" id="text-org42a80e6">
+<p>
+A core feature of a Reagent application is a specially modified version of a Clojure <a href="https://clojure.org/reference/atoms">atom</a>. Atoms are how Reagent controls state in an application. Whenever an atom is de-refenced within a Reagent render function (a render function is similar to how you return jsx in a function style React component), Reagent will update that part of the dom whenever the state of that atom changes elsewhere in the application. As these atoms need to be de-referenced in each render function you want them to update in, you need to be very intentional about where and how you define atoms in a similar way to how you need to carefully structure how props are passed between React components.
+</p>
+
+<p>
+When I initially started making the application, and it was not clear to me how atoms worked in Clojure let alone Reagent, I defined a total of 8 separate atoms in my main component: one for each byte in an IPv4 address and one for each byte in a subnet mask. This created two problems; first I had to pass all 8 atoms to each child component, and second I needed to pass all 8 atoms to each function that needed to work on both the IP address and subnet mask. Needless to say, this became cumbersome incredibly quickly. In the end I opted for what I thought was the least bad option, which was to define the 8 atoms in the global scope of the Reagent name space, and then pass the atoms to the functions that did the various calculations instead of trying to pass them to each child component. As such, I had to be quite diligent with how I manged the atoms.
+</p>
+
+<p>
+If I made the application again, or if I take the time to rewrite it, I will definitely be more intentional about how I define the atoms, and I will probably define them as either maps or vectors within the main component, pass them to the child components and then deference them within the child components.
+</p>
+</div>
+</div>
+<div id="outline-container-org669f3b2" class="outline-3">
+<h3 id="org669f3b2">Sequences</h3>
+<div class="outline-text-3" id="text-org669f3b2">
+<p>
+Another mistake I made was to design the functions that did the decimal/binary conversions in such a way that they returned strings in the format <code>"1 1 0 0 0 0 0 0"</code> or <code>"1 1 1 1 0 0 0 0"</code> etc. instead of returning a sequence of numbers, such as a list or a vector.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-clojure"><span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">defn</span> <span style="color: #7aa2f7;">calc-bits</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">[</span>dec-str<span style="color: #ff9e64;">]</span>
+                 <span style="color: #9ece6a;">"Takes a decimal number between 0 and 255 and returns</span>
+<span style="color: #9ece6a;">a string representing the binary bits."</span>
+                 <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">cond</span>
+                   <span style="color: #73daca;">(</span>&gt; dec-str <span style="color: #ff9e64; font-weight: bold;">255</span><span style="color: #73daca;">)</span> <span style="color: #73daca;">(</span>str <span style="color: #9ece6a;">"Max is 255"</span><span style="color: #73daca;">)</span>
+                   <span style="color: #73daca;">(</span>&lt; dec-str <span style="color: #ff9e64; font-weight: bold;">128</span><span style="color: #73daca;">)</span> <span style="color: #73daca;">(</span>calc-bits dec-str <span style="color: #9ece6a;">"0 "</span> <span style="color: #ff9e64; font-weight: bold;">6</span><span style="color: #73daca;">)</span>
+                   <span style="color: #73daca;">(</span>&gt;= dec-str <span style="color: #ff9e64; font-weight: bold;">128</span><span style="color: #73daca;">)</span> <span style="color: #73daca;">(</span>calc-bits <span style="color: #a9b1d6;">(</span>- dec-str <span style="color: #ff9e64; font-weight: bold;">128</span><span style="color: #a9b1d6;">)</span> <span style="color: #9ece6a;">"1 "</span> <span style="color: #ff9e64; font-weight: bold;">6</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">[</span>dec-str bit-str bit-pos<span style="color: #ff9e64;">]</span>
+   <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">if</span> <span style="color: #73daca;">(</span>= bit-pos <span style="color: #ff9e64; font-weight: bold;">0</span><span style="color: #73daca;">)</span>
+     <span style="color: #73daca;">(</span>str bit-str dec-str<span style="color: #73daca;">)</span>
+     <span style="color: #73daca;">(</span><span style="color: #bb9af7;">if</span> <span style="color: #a9b1d6;">(</span>&lt; dec-str <span style="color: #7aa2f7;">(</span>exp <span style="color: #ff9e64; font-weight: bold;">2</span> bit-pos<span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+       <span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">recur</span> dec-str <span style="color: #7aa2f7;">(</span>str bit-str <span style="color: #9ece6a;">"0 "</span><span style="color: #7aa2f7;">)</span> <span style="color: #7aa2f7;">(</span>- bit-pos <span style="color: #ff9e64; font-weight: bold;">1</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+       <span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">recur</span> <span style="color: #7aa2f7;">(</span>- dec-str <span style="color: #ff9e64;">(</span>exp <span style="color: #ff9e64; font-weight: bold;">2</span> bit-pos<span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span> <span style="color: #7aa2f7;">(</span>str bit-str <span style="color: #9ece6a;">"1 "</span><span style="color: #7aa2f7;">)</span> <span style="color: #7aa2f7;">(</span>- bit-pos <span style="color: #ff9e64; font-weight: bold;">1</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+</pre>
+</div>
+
+<p>
+The function takes a decimal string, taken in this case from user input, and then recursively generates the string by testing whether the remaining total of the decimal number was greater than the bit position&rsquo;s power of 2 value. This works quite well, and served as a useful abstraction throughout the application, but doing further calculations required that I use <code>clojure.string/split</code> throughout in order to do calculations on the bits, such as applying the subnet mask, determining the host and last bit etc. Had I used vectors, then I could have used numbers instead of strings for easier calculations and make a simple function to generate a string from the vector.
+</p>
+
+<p>
+It&rsquo;s possible that my approach was slightly more efficient because only the elements that contain that specific atom need to update, but the drawbacks of having to pass around so many atoms certainly outweigh that minor benefit.
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org3588e61" class="outline-2">
+<h2 id="org3588e61">Takeaways</h2>
+<div class="outline-text-2" id="text-org3588e61">
+<p>
+Despite the mistakes and challenges that I encountered, my overall first impression of both Clojure and Reagent has been very positive. The combination of a functional approach combined with Lisp allows you to make quite elegant and concise functions from fairly simple building blocks. I think this might be what makes Clojure and perhaps Lisp quite daunting to read at times when you are first learning it as a lot can be going on in a fairly small snippet of code. As you start to learn various building blocks of the language and how to effectively define and operate on sequences, you start to find yourself quickly writing more concise and effective code.
+</p>
+
+<p>
+Reagent itself is likely to quickly become my favorite way to write React code, at least for personal projects. It&rsquo;s minimalist approach and simplicity can be deceptive; not only does it seem capable for creating complex UIs, but of doing so in a way that is quite ergonomic. Furthermore, the REPL driven development creates a very effective feedback loop for developing. In fact, I wrote the entire application without even bothering to use the Clojure language server. That&rsquo;s not to say you should not use the LSP to write Clojure, but the REPL driven development is in itself powerful enough that I didn&rsquo;t miss having it enough to even bother turning it on or put up with it yelling at me. I probably would use it with a more complex application if only for the benefit of better code navigation.
+</p>
+
+<p>
+Despite it&rsquo;s strengths, I did notice some drawbacks to working with Reagent and ClojureScript. What stood out the most was the relative complexity of a ClojureScript project. your code is compiling both to run on the JVM, but also to JavaScript to run in the browser, There are separate REPLs for Clojure and ClojureScript on account of their differing runtimes and, as I mentioned before, the overall project structure and boilerplate required to make all of this work in concert is significant when compared to setting up an application with, for example,  NextJS or SvelteKit. Notwithstanding this complexity, Kit does an excellent job of structuring the project skeleton and setting all of this up so that you can start writing Reagent code with just a few minutes of set up time. Furthermore the benefits outweigh, in my opinion at this time at least, this drawback. As for my opinion of how this scales with more complex applications, only time will tell, but I am sure that I will continue my Clojure journey and find out in time.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Paper Picker</title>
+      <pubDate>Mon, 01 Apr 2024 05:36:00 -0300</pubDate>
+      <guid>/posts/paper-picker.html</guid>
+      <link>/posts/paper-picker.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+I recently made the switch from Windows 11 using WSL to Arch using Hyprland as my desktop environment, and I couldn&rsquo;t be happier with the change. Windows 11 came pre-installed on my laptop, and I didn&rsquo;t initially get around to changing the OS. WSL is impressive in a sense, it&rsquo;s very good at what it does, but Windows in general is a pain and small issues kept cropping up, so I made the switch.
+</p>
+
+<p>
+This was also my first time using either Wayland or Pipewire/Wireplumber, so I was a bit concerned about using Wayland with my GTX 3060, but so far so it hasn&rsquo;t caused many issues. The only issue I haven&rsquo;t been able to resolve was that Emacs clients will crash when I switch desktops from time to time, but using the Emacs daemon isn&rsquo;t actually a part of my workflow, so I can happily overlook that for now until I figure it out or it gets fixed by an update.
+</p>
+<div id="outline-container-org7ccae1e" class="outline-2">
+<h2 id="org7ccae1e">The Script</h2>
+<div class="outline-text-2" id="text-org7ccae1e">
+<p>
+I was initially turned off by the simplicity of <a href="https://github.com/hyprwm/hyprpaper">hyprpaper</a>, but after closer inspection I realized that with a bit of effort and a shell script, it provided me with the tools I needed to configure it to work pretty much however I wanted. I set to work on making <a href="https://github.com/Naokotani/dotfiles/blob/master/.config/hypr/scripts/start_paper.sh">this script</a> to control how my wallpapers are loaded. I thought I would share how I did it in the hopes that it could be helpful to someone else doing a similar setup or perhaps someone could recommend some changes to improve it.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-bash"><span style="color: #51587a;"># </span><span style="color: #51587a;">Setup wallaper directory and monitor names.</span>
+<span style="color: #c0caf5;">dir</span>=<span style="color: #9ece6a;">"/home/naokotani/Pictures/wallpapers/"</span>
+<span style="color: #c0caf5;">monitor1</span>=<span style="color: #9ece6a;">"eDP-1"</span>
+<span style="color: #c0caf5;">monitor2</span>=<span style="color: #9ece6a;">"DP-1"</span>
+
+<span style="color: #c0caf5;">cd</span> $<span style="color: #c0caf5;">dir</span>
+
+<span style="color: #51587a;"># </span><span style="color: #51587a;">Get a list of the .png files in the directory.</span>
+<span style="color: #c0caf5;">papers</span>=<span style="color: #a9b1d6;">(</span><span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{dir}</span><span style="color: #9ece6a;">"</span>*.png<span style="color: #a9b1d6;">)</span>
+
+<span style="color: #c0caf5;">cd</span> /home/naokotani/.config/hypr/
+
+<span style="color: #51587a;"># </span><span style="color: #51587a;">Get the length of the list of files.</span>
+<span style="color: #c0caf5;">length</span>=$<span style="color: #a9b1d6;">{</span>#<span style="color: #c0caf5;">papers</span><span style="color: #7aa2f7;">[</span>@<span style="color: #7aa2f7;">]</span><span style="color: #a9b1d6;">}</span>
+</pre>
+</div>
+
+<p>
+This section sets everything up. I set the values for the wallpaper directory and my monitor names. This makes it easy to change later because I just need to change it once at the start of the file. I then cd into the directory and get the list of .png files. hyprpaper only works on .png, so I want to filter out any .jpg or other files that might be left in there so it doesn&rsquo;t break. I also remove my old hyprpaper.conf because I am going to be generating a new one from scratch. Finally, I get the length of the list of files that I will be using to choose a random wallpaper later.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-bash"><span style="color: #51587a;"># </span><span style="color: #51587a;">Get the first random index.</span>
+<span style="color: #c0caf5;">first</span>=$<span style="color: #a9b1d6;">(</span><span style="color: #7aa2f7;">(</span><span style="color: #ff9e64; font-weight: bold;">1</span> + $<span style="color: #c0caf5;">RANDOM</span> % $<span style="color: #c0caf5;">length</span> - <span style="color: #ff9e64; font-weight: bold;">1</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+
+<span style="color: #bb9af7;">function</span> <span style="color: #7aa2f7;">dif_random</span> <span style="color: #a9b1d6;">{</span>
+    <span style="color: #c0caf5;">second</span>=$<span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">(</span><span style="color: #ff9e64; font-weight: bold;">1</span> + $<span style="color: #c0caf5;">RANDOM</span> % $<span style="color: #c0caf5;">length</span> - <span style="color: #ff9e64; font-weight: bold;">1</span><span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span>
+
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">Check to see if the second random index is equal</span>
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">to the first, if so, </span><span style="color: #51587a;">find</span><span style="color: #51587a;"> a new one.</span>
+    <span style="color: #bb9af7;">if</span> <span style="color: #7aa2f7;">[</span> $<span style="color: #ff9e64; font-weight: bold;">1</span> -eq $<span style="color: #c0caf5;">second</span> <span style="color: #7aa2f7;">]</span>
+    <span style="color: #bb9af7;">then</span>
+        dif_random <span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">1</span><span style="color: #9ece6a;">"</span>
+    <span style="color: #bb9af7;">else</span>
+        <span style="color: #bb9af7;">return</span> $<span style="color: #c0caf5;">second</span>
+    <span style="color: #bb9af7;">fi</span>
+<span style="color: #a9b1d6;">}</span>
+
+<span style="color: #51587a;"># </span><span style="color: #51587a;">Make sure that there is more than one file.</span>
+<span style="color: #51587a;"># </span><span style="color: #51587a;">This avoids an infite loop.</span>
+<span style="color: #bb9af7;">if</span> <span style="color: #a9b1d6;">[</span> $<span style="color: #c0caf5;">length</span> -gt <span style="color: #ff9e64; font-weight: bold;">1</span> <span style="color: #a9b1d6;">]</span>
+<span style="color: #bb9af7;">then</span>
+    dif_random <span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">first</span><span style="color: #9ece6a;">"</span>
+    <span style="color: #c0caf5;">second</span>=$<span style="color: #c0caf5;">?</span>
+<span style="color: #bb9af7;">else</span>
+    <span style="color: #c0caf5;">second</span>=$<span style="color: #c0caf5;">first</span>
+<span style="color: #bb9af7;">fi</span>
+</pre>
+</div>
+
+<p>
+This little section is responsible for selecting a random paper by taking the length and deducting one to select a random index. Then the function <code>dif_random()</code> will get a second random number and check to see if it is the same as the first, if it is, it will run the function again with the first random number as the argument. Once it finds a valid number it returns it. There is no doubt a better way to do this, but this works well enough. Finally I check to make sure that the length is greater than 1 before I actually call the function. If it&rsquo;s not, it doesn&rsquo;t call <code>dif_random()</code> because that would end up causing a stack overflow or infinite loop, either way it would break the script.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-bash"><span style="color: #51587a;"># </span><span style="color: #51587a;">Use the random indexes to get the two filenames</span>
+<span style="color: #c0caf5;">paper_one</span>=$<span style="color: #a9b1d6;">{</span><span style="color: #c0caf5;">papers</span><span style="color: #7aa2f7;">[</span>$<span style="color: #c0caf5;">first</span><span style="color: #7aa2f7;">]</span><span style="color: #a9b1d6;">}</span>
+<span style="color: #c0caf5;">paper_two</span>=$<span style="color: #a9b1d6;">{</span><span style="color: #c0caf5;">papers</span><span style="color: #7aa2f7;">[</span>$<span style="color: #c0caf5;">second</span><span style="color: #7aa2f7;">]</span><span style="color: #a9b1d6;">}</span>
+
+<span style="color: #51587a;"># </span><span style="color: #51587a;">Check to see if hyprpaper is running</span>
+<span style="color: #bb9af7;">if</span> <span style="color: #c0caf5;">pgrep</span> -x <span style="color: #9ece6a;">"hyprpaper"</span> &gt; /dev/null
+<span style="color: #bb9af7;">then</span>
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">If hyprpaper is running, select two new preloaded wallpapers</span>
+    hyprctl hyprpaper wallpaper <span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{monitor1}</span><span style="color: #9ece6a;">,</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{paper_one}</span><span style="color: #9ece6a;">"</span>
+    hyprctl hyprpaper wallpaper <span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{monitor2}</span><span style="color: #9ece6a;">,</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{paper_two}</span><span style="color: #9ece6a;">"</span>
+<span style="color: #bb9af7;">else</span>
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">Remove the old conf file.</span>
+    <span style="color: #c0caf5;">rm</span> -f hyprpaper.conf
+
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">If it's not running, generate a new hyprpaper.conf</span>
+    <span style="color: #bb9af7;">for</span> p<span style="color: #bb9af7;"> in</span> <span style="color: #9ece6a;">"</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{papers[@]}</span><span style="color: #9ece6a;">"</span>;
+    <span style="color: #bb9af7;">do</span>
+        <span style="color: #c0caf5;">echo</span> <span style="color: #9ece6a;">"preload = </span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{p}</span><span style="color: #9ece6a;">"</span> &gt;&gt; hyprpaper.conf
+    <span style="color: #bb9af7;">done</span>
+
+    <span style="color: #c0caf5;">echo</span> <span style="color: #9ece6a;">"wallpaper = </span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{monitor1}</span><span style="color: #9ece6a;">,</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{paper_one}</span><span style="color: #9ece6a;">"</span> &gt;&gt;  hyprpaper.conf
+    <span style="color: #c0caf5;">echo</span> <span style="color: #9ece6a;">"wallpaper = </span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{monitor2}</span><span style="color: #9ece6a;">,</span><span style="color: #ff9e64;">$</span><span style="color: #c0caf5;">{paper_two}</span><span style="color: #9ece6a;">"</span> &gt;&gt; hyprpaper.conf
+
+    <span style="color: #51587a;"># </span><span style="color: #51587a;">Start hyprpaper</span>
+    hyprpaper &amp;
+    <span style="color: #f7768e;">disown</span>
+<span style="color: #bb9af7;">fi</span>
+</pre>
+</div>
+
+<p>
+Finally, I use my newly created numbers to index into the papers list and grab two random file names. I then check to see if hyprpaper is running, if it is I load the new wallpapers, if it is not I generate a new <code>hyprpaper.conf</code> and start hyprpaper.
+</p>
+</div>
+</div>
+<div id="outline-container-org2fa8993" class="outline-2">
+<h2 id="org2fa8993">That&rsquo;s Great, but How Do I Use it?</h2>
+<div class="outline-text-2" id="text-org2fa8993">
+<p>
+I place this script in two places in my <code>hypland.conf</code> file. First I put it as an exec-once command. This way whenever hyprland starts, it will run the script, find that hyprpaper is inevitably not running, generate the <code>hyprpaper.conf</code>, select two random wallpapers and start hyprpaper. If at any point I want to change my wallpaper list, I just need to change the directory in the script, or put new wallpapers in the wallpapers directory, <code>pkill -9 hyprpaper</code> and run the script. This will regenerate a new configuration from the directory and reload hyprpaper. I also bind the script to a keybind so that, whenever I feel the need, I can pick two new random wallpapers.
+</p>
+
+<p>
+Finally, you can use cron to have the script run on a schedule once an hour, once a day or whatever you like to periodically change your wallpaper. This shouldn&rsquo;t have cause any significant performance issues if it comes up in the middle of doing something else because the wallpapers are already pre-loaded into memory.
+</p>
+</div>
+</div>
+<div id="outline-container-orgd713b33" class="outline-2">
+<h2 id="orgd713b33">Other Observations</h2>
+<div class="outline-text-2" id="text-orgd713b33">
+<p>
+I initially ran this script on about a dozen very large image files. As is pointed out in the documentation for hyprpaper, this both took a long time to load (I believe it was around 8 seconds), and took a decent chunk of memory. I was able to mitigate this problem a little bit by getting rid of a few of my least favorite wallpapers and then using <a href="https://imagemagick.org/index.php">ImageMagick</a> to reduce the size of the images down to my actual screen resolution by running <code>magick image.png --resize 2560x1440 image.png</code> you can also use this to switch from a different file type to a png, for example: <code>magick image.jpg --resize 2560x1440 image.png</code> reducing the size of the images greatly reduced the time it took to load going down to perhaps a second or less (the initial images were something in the order of 8000x6000, which was quite excessive anyway).
+</p>
+
+<p>
+Another small issue with the script is that it will always choose two different images, but one or both of them might be the same as the one that is already loaded. I thought about using the suggested command from the wiki, <code>hyprctl hyprpaper listactive</code> to find the active paper, but for some reason it just wasn&rsquo;t working. I finally determined that this wasn&rsquo;t such a big issue. The wallpapers almost instantly, so its not a big deal to simple press the keybind twice if I get a result I don&rsquo;t like.
+</p>
+</div>
+</div>
+<div id="outline-container-org85fc04a" class="outline-2">
+<h2 id="org85fc04a">Getting a Random Image</h2>
+<div class="outline-text-2" id="text-org85fc04a">
+<p>
+(Credit to <a href="https://github.com/trevarj/dotfiles">trev</a> for these observations)
+</p>
+
+<p>
+My method for getting a random image involved using a recursive function that keeps getting called until two different random numbers are selected. It&rsquo;s also possible to use a while loop to accomplish the same thing, but the effective difference between the two is probably pretty trivial. Both would have the limitation of creating an infinite loop if fewer than two filenames are supplied, which requires the check to make sure <code>$length</code> is greater than 1. This solution requires quite a few lines of code and is a bit complex. It also depends on <code>$RANDOM</code>, which is a bash internal. A similar solution could be based on using the <a href="https://man7.org/linux/man-pages/man1/shuf.1.html">shuf</a> coreutil, which would be less complicated, require fewer lines of code and be more readable. If you wanted the script to be fully posix compliant, you could generate a random number yourself in the script instead of relying on <code>$RANDOM</code>.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Bun SQLite</title>
+      <pubDate>Sat, 30 Mar 2024 19:55:00 -0300</pubDate>
+      <guid>/posts/bun-sqlite.html</guid>
+      <link>/posts/bun-sqlite.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+I recently had a school project where I needed to build a simple web application by taking some sample data from a CSV file to build a book web store. I quickly determined that I didn&rsquo;t want to deal with parsing a CSV files throughout my application every time I needed the data, and I was even less interested in trying to update that data. I decided that the best route would be to just parse the CSV file once, build a SQLite database and then use the SQLite. Additionally, I could add a <code>createCsv()</code> function that could build a new CSV file from the working database.
+</p>
+
+<p>
+I thought this was an interesting project because I could see it coming up in the real world. A business owner wants a website, but they haven&rsquo;t been using a proper database because they have been tracking their inventory via Excel or something similar, and now they want a website. Great, I was ready to get started, but I was confronted with the age old task of sifting through NPM packages to find suitable modules for the tasks I didn&rsquo;t want to do manually.
+</p>
+<div id="outline-container-orgb1f6aff" class="outline-2">
+<h2 id="orgb1f6aff">Bun to the Rescue!</h2>
+<div class="outline-text-2" id="text-orgb1f6aff">
+<p>
+Lucky for me after my initial investigation, I realized that the Bun team was good enough to add in a simple <a href="https://bun.sh/docs/api/sqlite">SQLite driver module</a> to Bun itself (Not to mention I recently stumbled across their nifty <a href="https://bun.sh/docs/runtime/shell">shell module</a>). I am a big fan of the inclusion of these features into Bun because, when I am working on a simple prototype application, the last thing I want to do is sift through NPM packages and try to parse through whatever random method was chosen for the documentation; I just want to open up Emacs and start writing some JavaScript. That is precisely what Bun&rsquo;s SQLite driver allows me to do. You still have the option to use something from NPM, but you don&rsquo;t have to go searching for a means to use something as simple as a basic SQLite database or a .env file in the early stages of building a project.
+</p>
+</div>
+</div>
+<div id="outline-container-orgef73047" class="outline-2">
+<h2 id="orgef73047">Generating the database</h2>
+<div class="outline-text-2" id="text-orgef73047">
+<p>
+Generating a table is dead simple. You just need to import the Bun SQLite module, create a database object and then use the <code>query()</code> and <code>run()</code> methods to create a table.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript"><span style="color: #bb9af7;">import</span> { Database } from <span style="color: #9ece6a;">"bun:sqlite"</span>;
+
+<span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">db</span>: Database = <span style="color: #bb9af7;">new</span> <span style="color: #c0caf5;">Database</span>(<span style="color: #9ece6a;">":memory:"</span>);
+
+db.query(<span style="color: #9ece6a;">`</span>
+<span style="color: #9ece6a;">CREATE TABLE books (</span>
+<span style="color: #9ece6a;">id integer primary key,</span>
+<span style="color: #9ece6a;">title text,</span>
+<span style="color: #9ece6a;">author text,</span>
+<span style="color: #9ece6a;">genre text,</span>
+<span style="color: #9ece6a;">price real,</span>
+<span style="color: #9ece6a;">image text,</span>
+<span style="color: #9ece6a;">available boolean</span>
+<span style="color: #9ece6a;">);</span>
+<span style="color: #9ece6a;">`</span>).run()
+
+</pre>
+</div>
+
+<p>
+I put the database in memory because its just a demo, but you could of course supply a file path to the <code>Database</code> constructor as well.
+</p>
+
+<p>
+All I had left to do was to parse the CSV file and insert it into the database. I chose to use <a href="https://www.papaparse.com/">Papa Parse</a> to parse the CSV file (I chose it, admittedly, somewhat randomly), and it was serviceable, but for some reason it was adding a junk object that only had an <code>BookID</code> key that was empty. Instead of figuring out why, I just filtered it out of the results. If I were doing more than just a demo, I probably would have dug into this rather odd result a bit further, or better yet, it might be just as easy to create a custom function to parse the CSV file manually.
+</p>
+
+<p>
+Before I could actually work with the data, I needed to create some types. I try to make a habit of using TypeScript where possible on small projects, so that I am more familiar and practiced with it when I need it for larger projects. First I created a <code>BookCsv</code> type that would hold the result form Papa parse and a <code>Book</code> type that represented the actual database schema. I created the extra <code>Book</code> type because Papa parse wanted the object&rsquo;s keys to match the field names. I figured it was easiest to just create two types, so that I could make sure that the object keys followed js naming conventions.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript"><span style="color: #bb9af7;">import</span> { Database } from <span style="color: #9ece6a;">"bun:sqlite"</span>;
+<span style="color: #bb9af7;">import</span> Papa, { type ParseResult } from <span style="color: #9ece6a;">'papaparse'</span>;
+<span style="color: #bb9af7;">import</span> type { Book, BookCsv } from <span style="color: #9ece6a;">'./types.ts'</span>
+
+<span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">db</span>: Database = <span style="color: #bb9af7;">new</span> <span style="color: #c0caf5;">Database</span>(<span style="color: #9ece6a;">":memory:"</span>);
+
+<span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">csv</span> = <span style="color: #bb9af7;">await</span> Bun.file(<span style="color: #9ece6a;">"data/booksdata.csv"</span>).text();
+<span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">books</span>: ParseResult&lt;BookCsv&gt; = Papa.parse(csv, { header: <span style="color: #ff9e64;">true</span> });
+
+books.data.forEach(book =&gt; {
+    <span style="color: #bb9af7;">if</span> (book.Title) {
+        <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">insert</span>: Book = {
+            id: book.BookID,
+            title: book.Title,
+            author: book.Author,
+            genre: book.Genre,
+            price: book.Price,
+            image: book.ImageFileName,
+            available: book.Available,
+        }
+        db.query(<span style="color: #9ece6a;">`</span>
+<span style="color: #9ece6a;">INSERT INTO books (title, author, genre, price, image, available)</span>
+<span style="color: #9ece6a;">VALUES ($title, $author, $genre, $price, $image, $available);</span>
+<span style="color: #9ece6a;">`</span>).values({
+    $title: insert.title,
+    $author: insert.author,
+    $genre: insert.genre,
+    $price: insert.price,
+    $image: insert.image,
+    $available: insert.available,
+});
+    }
+});
+</pre>
+</div>
+
+<p>
+I use the <code>Book</code> type to insert into the database and then when I need to get the data out I can use that same type with a select statement. I used the object method for inserting the data, but you can also use the question mark style and then supply an array of values that match the question marks.
+</p>
+</div>
+</div>
+<div id="outline-container-orgd561359" class="outline-2">
+<h2 id="orgd561359">As Easy as That</h2>
+<div class="outline-text-2" id="text-orgd561359">
+<p>
+The amount of code and effort it would have required to use node for this would have been virtually the same, but I like not always have to make decisions, and Bun is fast becoming my go to js runtime for these kinds of projects for that reason alone. You can access the wealth of NPM packages if you need them, but very often I find myself installing the same packages over and over just to perform relatively simple tasks, and in those cases having something that is a bit more opinionated and has some of these quality of life modules is exactly what I am looking for.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Diesel Database</title>
+      <pubDate>Sun, 03 Mar 2024 07:16:00 -0400</pubDate>
+      <guid>/posts/diesel-database.html</guid>
+      <link>/posts/diesel-database.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+When I decided to start work on this project, I knew it would be important to carefully design the database. I did some research into software to draw an entity relationship diagram and a UML diagram to help me map out the project, and a friend suggested that I try <a href="https://plantuml.com/">PlantUML</a>. PlantUML is a java based application that builds diagrams from a very intuitive but powerful text based description syntax. It can create all different kinds of diagrams through the use of class definitions that render based on your text description.
+</p>
+<div id="outline-container-org39634e4" class="outline-2">
+<h2 id="org39634e4">Creating an ERD Diagram with PlantUML</h2>
+<div class="outline-text-2" id="text-org39634e4">
+<p>
+The web application I am designing is intended to host different types of assets for table-top role-playing games such as books, maps, music and so on. I want to be able to represent different types of ownership in this schema. A user can be both an owner of assets and a creator of assets, but I do not want the information related to creators in the <code>user</code> table because most users will probably not also be creators. A simple boolean will not suffice because there would be no way to store creator-specific information. I can use the <code>user.id</code>  in a <code>creator</code> table to represent an optional one-to-one relationship. A user is either a creator, or they are not, and if they are they can and should only be a creator once. Therefore the <code>user.id</code> foreign key can act as the primary key in the <code>creator</code> table. Each asset must have one and only one creator who is the sole source of ownership for the asset. This <code>creator.id</code> can then be stored in the <code>asset</code> table as a foreign key in a  one-to-many relationship to represent creator ownership. User ownership, an individual who has purchased an asset, is represented in a separate linking table that can represent a single user owning many assets. This schema will allow for a single user to have multiple forms of ownership, a many-to-many relationship for purchased assets, and a one-to-many relationship for created assets, while keeping the data normalized. The below markup will create these tables in a PlantUML diagram:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nil">
+' hide the spot
+' hide circle
+
+' avoid problems with angled crows feet
+skinparam linetype ortho
+
+entity user {
+    * id &lt;&lt;PK&gt;&gt;
+    --
+    * username
+    * email
+}
+
+entity creator {
+    * id &lt;&lt;PK, FK&gt;&gt;
+    --
+    creator_name
+}
+
+entity user_asset {
+    * user_id &lt;&lt;FK, PK&gt;&gt;
+    * asset_id &lt;&lt;FK, PK&gt;&gt;
+}
+
+entity asset {
+    * id &lt;&lt;PK&gt;&gt;
+    * creator_id &lt;&lt;FK&gt;&gt;
+    --
+    * title
+    * summary
+    * image
+}
+</pre>
+</div>
+
+<p>
+This creates the four tables, but does nothing to link them up. The few lines at the top are used to correctly display an ERD diagram as it differs slightly from the default UML class implementation. The <code>*</code> creates a <code>NOT NULL</code> field and the <code>--</code> is designed to indicate which of the fields are identifiers.
+</p>
+
+
+<figure id="org3bfa805">
+<img src="images/sample-erd-one.png" alt="sample-erd-one.png">
+
+</figure>
+
+<p>
+PlantUML uses a simple syntax in order to represent linkages. It is important to note that it is simply a drawing tool and will not prevent you from creating invalid or incorrect linkages between tables.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nil">
+user     ||--o|  creator       : is
+creator  ||--o{  asset         : creates
+asset    ||--o{  user_asset    : is purchased in
+user     ||-down--o{  user_asset    : purchases
+</pre>
+</div>
+
+<p>
+Adding these lines below the table definitions will create linkages between the tables using a visually representative syntax that is very easy to remember. For example  <code>|o--|{</code> represents an optional one to mandatory many relationship and <code>||--||</code> would represent a mandatory one-to-one relationship. Detailed examples for all the possible combinations can be found in the <a href="https://plantuml.com/ie-diagram">ERD class documentation</a>.
+</p>
+
+
+<figure id="org02ebbe4">
+<img src="images/sample-erd-two.png" alt="sample-erd-two.png">
+
+</figure>
+</div>
+</div>
+<div id="outline-container-orge2643f1" class="outline-2">
+<h2 id="orge2643f1">Creating a complimentary UML diagram</h2>
+<div class="outline-text-2" id="text-orge2643f1">
+<p>
+I didn&rsquo;t exactly make a UML diagram because Rust uses structs and traits instead of classes and interfaces, but I created a diagram that was inspired by UML. To do this I had to add some custom symbols to correctly display Rust data structures like traits and enums. I started by adding classes for each table and then created structs that would work well with <a href="https://diesel.rs/">Diesel</a>. Diesel is an ORM that uses Rust structs along with macros to dynamically create SQL queries that are safer from SQL injection or other attacks. It also speeds up development by creating a schema of your database in Rust so that you will get compile time and language server errors if  you try to do something incompatible with your schema.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-nil">struct User {
+        + id: i32
+        + username: String
+        + email: String
+        + create(user_id: i32) Self
+        + read(user_id: i32) Self
+        + update(user: UserNew) usize
+        + destroy(user_id: i32) usize
+}
+
+struct UserNew {
+        + username: String
+        + email: String
+        + logo: String
+        + create(user_id: i32) Self
+}
+
+struct Creator {
+        + id: i32
+        + first_name:  String
+        + last_name: String
+        + read(creator_id: i32) Self
+        + update(user: UserNew) usize
+        + destroy(user_id: i32) usize
+}
+
+struct CreatorNew {
+        + first_name:  String
+        + last_name: String
+        + create(user_id: i32) Self
+}
+
+class AssetTrait &lt;&lt; (T,#FF7700) &gt;&gt;  {
+        read(asset_id: i32) Self
+        update(self, conn) usize
+        destroy(asset_id: i32) i32
+        paginate(user_id) Page
+}
+
+struct Page {
+        + thumb: String
+        + display_name:String
+        + main_image: String
+}
+
+struct Asset {
+        + id: i32
+        + creator_id: i32
+        + title: String
+        + summary: String
+}
+
+UserNew o-left- User
+CreatorNew o-right- Creator
+User *-- Creator
+Creator o-- Asset
+Asset &lt;|.. AssetTrait
+AssetTrait &lt;|.. Page
+
+</pre>
+</div>
+
+<p>
+Similar to the ERD diagram, you create classes, but instead of using <code>*</code> you would use <code>+</code> to show public methods and variables. In order to display the <code>Asset</code> trait I used the <code>&lt;&lt; (T,#FF7700) &gt;&gt;</code> syntax, which allows you to control the icon and the icon color for any arbitrary data structure.
+</p>
+
+
+<figure id="orgaee927d">
+<img src="images/sample-uml.png" alt="sample-uml.png">
+
+</figure>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Trying Deno</title>
+      <pubDate>Sun, 18 Feb 2024 05:00:00 -0400</pubDate>
+      <guid>/posts/trying-deno.html</guid>
+      <link>/posts/trying-deno.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+Deno, as well as Node&rsquo;s other competitor Bun, attempt to compete with Node by solving some of the headaches that arise from the complexity of the Node ecosystem. Probably the biggest issue that  Deno tries to solve is dealing with the complexity of and time wasted by the need to compile TypeScript before it can be run by Node. The Deno runetime is able to run TypeScript files directly without the need to compile, which vastly improves developer experience. It also makes it easier to get a project started by eliminating the need to create a <code>tsconfig.json</code> file. This makes tools like Deno especially good for people that are first getting started with TypeScript because it is able to abstract away some of the more daunting aspects of TypeScript allowing you to be able to engage directly with the core of TypeScript, which as its moniker would suggest, is its typing system.
+</p>
+
+<p>
+Deno also attempts to fill in some gaps in the Node core libraries. One example that really stands out after spending time working with Rust, is the lack of an opinionated testing framework. While Node does provide the core features needed for testing in the assert functions, without an outside library, it would be necessary to write your own testing library in order to be able to approach testing in a systematic and consistent way. In most cases, it is probably preferable to reach for a fully featured testing library like <a href="https://jestjs.io/">Jest</a>, but having more robust in-built testing functionality makes testing more consistent. The best of both worlds, in my opinion,  is to have a testing framework tightly integrated into the runtime itself while also leaving the door open to use outside libraries in the case where the in-built functionality insufficient for the requirements of a project.
+</p>
+
+<p>
+The other problem that Deno tries to solve is security. It is common practice with Node apps to reach for something like Nginx to use as a load balancer, but also for improved security by creating a more secure layer between your app and the public internet.  Nginx is very good at what it does, and for larger projects the time required to configure it is not prohibitive. In the case of smaller projects, the need to configure a reverse proxy can be cumbersome and they generally need access to fewer resources making these security features especially useful for small projects that may only require network access to function.
+</p>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Bun Blog</title>
+      <pubDate>Thu, 08 Feb 2024 21:19:00 -0400</pubDate>
+      <guid>/posts/bun-blog.html</guid>
+      <link>/posts/bun-blog.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+I wasn&rsquo;t entirely happy with my <a href="https://chris-hughes.dev/blog/emacs-CMS.html">Emacs CMS</a> blog project. It felt like a bit of a disorganized prototype. I had HTML lurking around in my index.js along with all of the logic for the whole app, it could only handle uploading .png files. Using a web framework like Express also felt really excessive for such a simple application. I had a few people suggest that the <a href="https://bun.sh/">Bun</a> JavaScript runtime as an alternative to Node that was worth checking out so I decided to take another stab at the project using that, cheerio and mustache. The entire project is located <a href="https://github.com/Naokotani/bun-blog">here</a> on my GitHub.
+</p>
+<div id="outline-container-orge97ea70" class="outline-2">
+<h2 id="orge97ea70">Bun vs. Node</h2>
+<div class="outline-text-2" id="text-orge97ea70">
+<p>
+Bun is a really interesting alternative to Node. It comes with a really nice <code>Bun.serve()</code> method for receiving and sending HTTP requests and responses so its very easy to just make a nice REST api right out of the box. It also comes with the ability to read .env files into <code>process.env</code>, which is a nice convenience. It also has <code>Bun.file()</code>, which is a replacement for Nodes <code>fs.readFile()</code>, that can read relative paths without the need to join a relative path with <code>__dirname</code>. A lot of these things come down to convenience replacements for common tasks, but the Bun website makes some claims about being super fast. Without doing a lot more research, I will take that with a grain of salt for now.
+</p>
+</div>
+</div>
+<div id="outline-container-orgfc01004" class="outline-2">
+<h2 id="orgfc01004">Getting the data from Emacs</h2>
+<div class="outline-text-2" id="text-orgfc01004">
+<p>
+Similar to my other project I use the  following function to get my data from Emacs and my local machine to the remote server.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">defun</span> <span style="color: #7aa2f7;">nao/export-org-to-blog</span> <span style="color: #7aa2f7;">()</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">interactive</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">setq</span> <span style="color: #c0caf5;">org-html-doctype</span> <span style="color: #9ece6a;">"html5"</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">let</span> <span style="color: #ff9e64;">(</span><span style="color: #73daca;">(</span>filename <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">org-html-export-to-html</span> nil nil nil t<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">copy-file</span> <span style="color: #73daca;">(</span><span style="color: #ff9e64;">concat</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">file-name-sans-extension</span> filename<span style="color: #a9b1d6;">)</span> <span style="color: #9ece6a;">".png"</span><span style="color: #73daca;">)</span>
+               <span style="color: #9ece6a;">"/rsync:server:/path/to/images"</span> t<span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">copy-file</span> filename <span style="color: #9ece6a;">"/rsync:server/path/to/html"</span> t<span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+</pre>
+</div>
+
+<p>
+Org mode also comes with a series of publish functions that, I am assuming, accomplish a similar task. This above function did almost exactly what I needed, so I haven&rsquo;t looked into the org publish functionality, but perhaps I will look into switching to that in the future if the website becomes more complicated.
+</p>
+</div>
+</div>
+<div id="outline-container-org0af1e85" class="outline-2">
+<h2 id="org0af1e85">Bun REST api</h2>
+<div class="outline-text-2" id="text-org0af1e85">
+<p>
+On the server I use a very simple REST api to direct traffic to resources by making use of <code>Bun.serve()</code>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript"><span style="color: #bb9af7;">try</span> {
+    <span style="color: #bb9af7;">if</span> (<span style="color: #9ece6a;">/\.(css|png|svg)$/</span>.test(req.url)) <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">await</span> getStatic(req.url);
+    <span style="color: #bb9af7;">if</span> (url.pathname === <span style="color: #9ece6a;">"/"</span>) <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">await</span> getHome();
+    <span style="color: #bb9af7;">if</span> (url.pathname === <span style="color: #9ece6a;">"/blog"</span>) <span style="color: #bb9af7;">return</span> getBlogs();
+    <span style="color: #bb9af7;">if</span> (url.pathname === <span style="color: #9ece6a;">"/cards"</span>) <span style="color: #bb9af7;">return</span> getCards();
+    <span style="color: #bb9af7;">if</span> (<span style="color: #9ece6a;">/\/blog\/.*\.html/</span>.test(req.url)) {
+        <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">match</span> = req.url.match(<span style="color: #9ece6a;">/\/blog\/(.*\.html)/</span>);
+        <span style="color: #bb9af7;">return</span> getPost(
+            match![<span style="color: #ff9e64; font-weight: bold;">1</span>],
+            req.headers.get(<span style="color: #9ece6a;">"hx-request"</span>) === <span style="color: #9ece6a;">"true"</span>
+        );
+    }
+    <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">new</span> <span style="color: #c0caf5;">Response</span>(<span style="color: #9ece6a;">"404!"</span>);
+} <span style="color: #bb9af7;">catch</span> (e) {
+    console.error(<span style="color: #9ece6a;">'Error:'</span>, e);
+    <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">new</span> <span style="color: #c0caf5;">Response</span>(<span style="color: #9ece6a;">"500 - Internal Server Error"</span>);
+}
+</pre>
+</div>
+
+<p>
+I took the basic structure from the Bun documentation and I use Regex tests to match routes. The first route matches routes with css or image filenames to server those images as they are requested and the other routes direct to modules where I use Mustache templates to create the response for the client.  <code>req.headers.get("hx-request") === "true"</code> being based to getPost() tests to see if a request has the hx-request header. I do this because I use <a href="https://htmx.org/">HTMX</a> to avoid page reloads, but I need a way to determine if a resource was requested from outside the page. If the header is not present, I know the user navigated from an external link so it knows whether or not it needs to serve the <code>index.html</code>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript"><span style="color: #bb9af7;">if</span> (hx) {
+    <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">new</span> <span style="color: #c0caf5;">Response</span>(post);
+} <span style="color: #bb9af7;">else</span> {
+    <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">view</span> = {
+        API_URL: API_URL,
+        post: post,
+    }
+
+    <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">html</span> = Mustache.render(index, view);
+
+    <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">new</span> <span style="color: #c0caf5;">Response</span>(html, {
+        headers: {
+            <span style="color: #9ece6a;">"Content-Type"</span>: <span style="color: #9ece6a;">"text/html"</span>,
+        },
+    });
+}
+</pre>
+</div>
+
+<p>
+inside <code>getPost()</code> if hx-request is true, I send just the HTML for the post, if its false, then I use Mustache to add the post to the index.html and send it as one HTML file.
+</p>
+</div>
+</div>
+<div id="outline-container-org6345fb2" class="outline-2">
+<h2 id="org6345fb2">Serving Static Files</h2>
+<div class="outline-text-2" id="text-org6345fb2">
+<p>
+The module that routes to the static file resources users regex similar to the main REST api:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript"><span style="color: #bb9af7;">if</span> (<span style="color: #9ece6a;">/\w+\.css$/</span>.test(filename)) {
+    <span style="color: #bb9af7;">try</span> {
+        <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">file</span> = Bun.file(<span style="color: #9ece6a;">`static/css/${filename}`</span>);
+        <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">new</span> <span style="color: #c0caf5;">Response</span>(file);
+    } <span style="color: #bb9af7;">catch</span> (e) {
+        console.error(e);
+        <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">new</span> <span style="color: #c0caf5;">Response</span>(<span style="color: #9ece6a;">"404: file not found"</span>);
+    }
+}
+</pre>
+</div>
+
+<p>
+<code>String.match()</code> extracts the filename from the url and then I use regex to map the file extensions to the appropriate directories and then return the requested file. The most likely reason for an error is that the file does not exist, but regardless of the error, I log the error on the server and respond with 404.
+</p>
+</div>
+</div>
+<div id="outline-container-orgae9a0bf" class="outline-2">
+<h2 id="orgae9a0bf">Generating thumbnails</h2>
+<div class="outline-text-2" id="text-orgae9a0bf">
+<p>
+Initially to create the images for the cards I was simply taking screenshots and then uploading the results as is. This meant that the files were much larger than they needed to be and slow to load. Furthermore, they were inconsistent in terms of size and aspect ratio making the cards inconsistently sized. In order to solve this problem, I installed <a href="https://sharp.pixelplumbing.com/">sharp</a> in order to transform the images, but I wanted a way to automate it.
+</p>
+
+<p>
+I created a simple module to achieve this. First I took the <a href="https://bun.sh/guides/read-file/watch">example code</a> from the Bun documentation to watch my images directory for changes. When I use rsync to upload a new file the watch will trigger and provide me with the filename that was changed. I also add some logic to make sure that the file has appropriate extensions, in this case I check for png and jpg, and isn&rsquo;t a thumbnail itself.
+</p>
+
+<p>
+Next I check to see if I have access to the file using <code>fs.access()</code>. If an image is moved from the directory, then sharp might try to transform an image that no longer exists, causing an error.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript"><span style="color: #bb9af7;">async</span> <span style="color: #bb9af7;">function</span> checkAccess(<span style="color: #c0caf5;">filename</span>: <span style="color: #c0caf5;">string</span>) {
+    <span style="color: #bb9af7;">try</span> {
+        <span style="color: #bb9af7;">await</span> access(<span style="color: #9ece6a;">`${imagesPath}/${filename}`</span>, constants.R_OK | constants.W_OK);
+        resizeImage(filename);
+    } <span style="color: #bb9af7;">catch</span> {
+        <span style="color: #bb9af7;">return</span>;
+    }
+}
+</pre>
+</div>
+
+<p>
+Finally after everything has been appropriately validated, I check to see if there is already a thumbnail generated for that image, and if there is, I delete it so that, if the image has changed, the thumbnail will be updated appropriately. In theory this might cause an issue where, if the thumbnail is requested at the exact moment that I am remaking it, it would not be available. Perhaps a solution to this would be to create a separate staging directory and sync the images after they are updated. I may do this in the future if I create module for updating the post HTML to semantic HTML5.
+</p>
+
+<p>
+I then run <code>sharp().resize()</code> with first two arguments being the width and height of the new image in pixels. In the options  argument, I set fit to &ldquo;cover&rdquo;, which has a similar effect to a CSS overflow hidden, but it will actually crop the image. This might cause it to be cropped in an undesirable way, but I think the best solution here is to crop the image properly before I upload it.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript"><span style="color: #bb9af7;">async</span> <span style="color: #bb9af7;">function</span> resizeImage(<span style="color: #c0caf5;">filename</span>: <span style="color: #c0caf5;">string</span>) {
+    <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">images</span> = <span style="color: #bb9af7;">await</span> fs.readdir(imagesPath);
+    <span style="color: #bb9af7;">if</span> (images.includes(<span style="color: #9ece6a;">`thumb-${filename}`</span>)) {
+        <span style="color: #bb9af7;">try</span> {
+            <span style="color: #bb9af7;">await</span> fs.rm(<span style="color: #9ece6a;">`${imagesPath}/thumb-${filename}`</span>);
+            console.log(<span style="color: #9ece6a;">`Deleted old thumb for ${filename}`</span>);
+        } <span style="color: #bb9af7;">catch</span> (e) {
+            console.error(<span style="color: #9ece6a;">"Error deleting old thumb: "</span> + e);
+        }
+    }
+
+    <span style="color: #bb9af7;">try</span> {
+        console.log(<span style="color: #9ece6a;">`Processing image ${filename}`</span>);
+        sharp(<span style="color: #9ece6a;">`${imagesPath}/${filename}`</span>)
+            .resize(<span style="color: #ff9e64; font-weight: bold;">384</span>, <span style="color: #ff9e64; font-weight: bold;">185</span>, {
+                fit: <span style="color: #9ece6a;">"cover"</span>,
+            })
+            .toFile(<span style="color: #9ece6a;">`${imagesPath}/thumb-${filename}`</span>);
+    } <span style="color: #bb9af7;">catch</span> (e) {
+        console.error(<span style="color: #9ece6a;">"File processing failed"</span> + e);
+        <span style="color: #bb9af7;">return</span>;
+    }
+    console.log(<span style="color: #9ece6a;">`${filename} resized successfully`</span>);
+}
+
+</pre>
+</div>
+</div>
+<div id="outline-container-org65e9569" class="outline-3">
+<h3 id="org65e9569">fs.watch vs. chokidar</h3>
+<div class="outline-text-3" id="text-org65e9569">
+<p>
+Another possible solution would be to use <a href="https://www.npmjs.com/package/chokidar">chokidar</a>. Chokidar still relies on <code>fs.watch()</code> and <code>fs.watchFile()</code>, but aims to resolve an issue where, depending on OS, the <code>eventType</code> returned by <code>fs.watch()</code> will always be &ldquo;Rename&rdquo; regardless of what is actually happening to the file. Since Chokidar still relies on the same fs methods as I am using, it is probably using similar techniques to return more appropriate events as I am using to validate that the file exists, which would indicate a move or delete event, and will add a dependency that is probably not really needed for the sake of saving a few lines of code. If I later find myself doing more extensive file system work that relies on <code>fs.watch()</code> I might reach for chokidar to avoid having write similar methods myself.
+</p>
+</div>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Rust Web Scraper</title>
+      <pubDate>Thu, 08 Feb 2024 19:28:00 -0400</pubDate>
+      <guid>/posts/pf2-web-scraper.html</guid>
+      <link>/posts/pf2-web-scraper.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+In order to be able to build the PF2e <a href="https://alembichead.com/encounter-builder">Encounter Builder</a> I needed to collect data for the database. I wrote a web scraper in rust that used the <a href="https://crates.io/crates/scraper">scraper</a> crate to collect the data from the list of monsters on <a href="https://pf2.d20pfsrd.com/monster/">pf2srd.com</a>. This involved three separate but related tasks: Parsing through the table in order to get the URLs for the individual monsters, scraping the data for each individual monster and then working on the vector of traits created to correctly store the traits in the database.
+</p>
+<div id="outline-container-orgc822494" class="outline-2">
+<h2 id="orgc822494">Testing and Validation</h2>
+<div class="outline-text-2" id="text-orgc822494">
+<p>
+This project required a bit of extra attention to testing and validation to ensure that there were as few data inconsistencies entered into the database as possible. I was working with unsanitized data directly from the web that was additionally entered in a very inconsistent matter. It would appear that CSS classes were entered manually and inconsistently such that it was more difficult to correctly target the correct elements in a consistent way. I approached validation in two steps.
+</p>
+</div>
+<div id="outline-container-org3657def" class="outline-3">
+<h3 id="org3657def">Validation function</h3>
+<div class="outline-text-3" id="text-org3657def">
+<p>
+At runtime the data passes through a validation function that ensure that that the data conforms to the data types of the database. I initially used if statements to achieve this:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-rust">    <span style="color: #bb9af7;">pub</span> <span style="color: #bb9af7;">fn</span> <span style="color: #7aa2f7;">validate</span><span style="color: #a9b1d6;">(</span><span style="color: #a9b1d6; background-color: #1a1b26;">&amp;</span><span style="color: #bb9af7;">self</span><span style="color: #a9b1d6;">)</span> -&gt; <span style="color: #c0caf5;">bool</span> <span style="color: #a9b1d6;">{</span>
+
+        <span style="color: #bb9af7;">if</span> <span style="color: #bb9af7;">self</span>.name.len<span style="color: #7aa2f7;">()</span> &gt; <span style="color: #ff9e64; font-weight: bold;">100</span> || <span style="color: #bb9af7;">self</span>.name.is_empty<span style="color: #7aa2f7;">()</span> <span style="color: #7aa2f7;">{</span>
+            <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">false</span>;
+        <span style="color: #7aa2f7;">}</span>
+        <span style="color: #bb9af7;">if</span> <span style="color: #bb9af7;">self</span>.level &gt; <span style="color: #ff9e64; font-weight: bold;">25</span> <span style="color: #7aa2f7;">{</span>
+            <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">false</span>;
+        <span style="color: #7aa2f7;">}</span>
+        <span style="color: #bb9af7;">if</span> <span style="color: #bb9af7;">self</span>.alignment.len<span style="color: #7aa2f7;">()</span> &gt; <span style="color: #ff9e64; font-weight: bold;">10</span> || <span style="color: #bb9af7;">self</span>.name.is_empty<span style="color: #7aa2f7;">()</span> <span style="color: #7aa2f7;">{</span>
+            <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">false</span>;
+        <span style="color: #7aa2f7;">}</span>
+        <span style="color: #bb9af7;">if</span> <span style="color: #bb9af7;">self</span>.monster_type.len<span style="color: #7aa2f7;">()</span> &gt; <span style="color: #ff9e64; font-weight: bold;">100</span> || <span style="color: #bb9af7;">self</span>.monster_type.is_empty<span style="color: #7aa2f7;">()</span> <span style="color: #7aa2f7;">{</span>
+            <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">false</span>;
+        <span style="color: #7aa2f7;">}</span>
+        <span style="color: #bb9af7;">if</span> <span style="color: #bb9af7;">self</span>.size.len<span style="color: #7aa2f7;">()</span> &gt; <span style="color: #ff9e64; font-weight: bold;">20</span> || <span style="color: #bb9af7;">self</span>.size.is_empty<span style="color: #7aa2f7;">()</span> <span style="color: #7aa2f7;">{</span>
+            <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">false</span>;
+        <span style="color: #7aa2f7;">}</span>
+
+        <span style="color: #bb9af7;">for</span> <span style="color: #c0caf5;">t</span> <span style="color: #bb9af7;">in</span> <span style="color: #a9b1d6; background-color: #1a1b26;">&amp;</span><span style="color: #bb9af7;">self</span>.traits <span style="color: #7aa2f7;">{</span>
+            <span style="color: #bb9af7;">if</span> t.len<span style="color: #ff9e64;">()</span> &gt; <span style="color: #ff9e64; font-weight: bold;">50</span> || t.is_empty<span style="color: #ff9e64;">()</span> <span style="color: #ff9e64;">{</span>
+                <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">false</span>;
+            <span style="color: #ff9e64;">}</span>
+        <span style="color: #7aa2f7;">}</span>
+        <span style="color: #bb9af7;">true</span>
+    <span style="color: #a9b1d6;">}</span>
+</pre>
+</div>
+
+<p>
+The function checks each member of the struct and ensures that it conforms to the data types. As this was my first significant Rust project, I wasn&rsquo;t aware that this is not idiomatic Rust so when I lated returned to the project and rewrote the function to use match:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-rust">  <span style="color: #bb9af7;">for</span> <span style="color: #c0caf5;">t</span> <span style="color: #bb9af7;">in</span> <span style="color: #a9b1d6; background-color: #1a1b26;">&amp;</span><span style="color: #bb9af7;">self</span>.traits <span style="color: #a9b1d6;">{</span>
+      <span style="color: #bb9af7;">match</span> t <span style="color: #7aa2f7;">{</span>
+          t <span style="color: #bb9af7;">if</span> t.len<span style="color: #ff9e64;">()</span> &gt; <span style="color: #ff9e64; font-weight: bold;">50</span> =&gt; <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">false</span>,
+          t <span style="color: #bb9af7;">if</span> t.is_empty<span style="color: #ff9e64;">()</span> =&gt; <span style="color: #bb9af7;">return</span> <span style="color: #bb9af7;">false</span>,
+          _ =&gt; <span style="color: #ff9e64;">()</span>
+      <span style="color: #7aa2f7;">}</span>
+  <span style="color: #a9b1d6;">}</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org1770201" class="outline-3">
+<h3 id="org1770201">Testing</h3>
+<div class="outline-text-3" id="text-org1770201">
+<p>
+In order to ensure that the validation functions were working correctly, I created tests designed to make each of the matches return false. For example:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-rust">  <span style="color: #51587a;">//</span><span style="color: #51587a;">Test long size over 20</span>
+  <span style="color: #bb9af7;">let</span> <span style="color: #c0caf5;">size</span> = <span style="color: #c0caf5;">String</span>::from<span style="color: #a9b1d6;">(</span><span style="color: #9ece6a;">"1234567890123456789012312"</span><span style="color: #a9b1d6;">)</span>;
+  <span style="color: #bb9af7;">let</span> <span style="color: #c0caf5;">traits</span> = <span style="color: #7dcfff; font-weight: bold;">vec!</span><span style="color: #a9b1d6;">[</span>
+      <span style="color: #c0caf5;">String</span>::from<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"Fast"</span><span style="color: #7aa2f7;">)</span>,
+      <span style="color: #c0caf5;">String</span>::from<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"Slow"</span><span style="color: #7aa2f7;">)</span>,
+      <span style="color: #c0caf5;">String</span>::from<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"speedy"</span><span style="color: #7aa2f7;">)</span>,
+  <span style="color: #a9b1d6;">]</span>;
+  <span style="color: #bb9af7;">let</span> <span style="color: #c0caf5;">monster</span> = <span style="color: #c0caf5;">Monster</span> <span style="color: #a9b1d6;">{</span>
+      <span style="color: #c0caf5;">url</span>: <span style="color: #c0caf5;">String</span>::from<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"www.foo.com"</span><span style="color: #7aa2f7;">)</span>,
+      <span style="color: #c0caf5;">name</span>: <span style="color: #c0caf5;">String</span>::from<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"ghost"</span><span style="color: #7aa2f7;">)</span>,
+      <span style="color: #c0caf5;">level</span>: <span style="color: #ff9e64; font-weight: bold;">19</span>,
+      <span style="color: #c0caf5;">alignment</span>: long_string.clone<span style="color: #7aa2f7;">()</span>,
+      <span style="color: #c0caf5;">monster_type</span>: <span style="color: #c0caf5;">String</span>::from<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"Undead"</span><span style="color: #7aa2f7;">)</span>,
+      size,
+      traits,
+      <span style="color: #c0caf5;">is_caster</span>: <span style="color: #bb9af7;">false</span>,
+      <span style="color: #c0caf5;">is_ranged</span>: <span style="color: #bb9af7;">false</span>,
+      <span style="color: #c0caf5;">is_aquatic</span>: <span style="color: #bb9af7;">false</span>,
+  <span style="color: #a9b1d6;">}</span>;
+
+  <span style="color: #7dcfff; font-weight: bold;">assert!</span><span style="color: #a9b1d6;">[</span>!monster.validate<span style="color: #7aa2f7;">()</span><span style="color: #a9b1d6;">]</span>;
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-orgf45485e" class="outline-2">
+<h2 id="orgf45485e">Parsing the traits to  for valid data</h2>
+<div class="outline-text-2" id="text-orgf45485e">
+<p>
+After scraping the traits from the web, I first ensured that the trait strings were properly trimmed:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-rust">  <span style="color: #bb9af7;">let</span> <span style="color: #bb9af7;">mut</span> <span style="color: #c0caf5;">clean_traits</span>: <span style="color: #c0caf5;">Vec</span><span style="color: #a9b1d6;">&lt;</span><span style="color: #c0caf5;">String</span><span style="color: #a9b1d6;">&gt;</span> = <span style="color: #c0caf5;">Vec</span>::new<span style="color: #a9b1d6;">()</span>;
+  <span style="color: #bb9af7;">for</span> <span style="color: #c0caf5;">t</span> <span style="color: #bb9af7;">in</span> traits <span style="color: #a9b1d6;">{</span>
+      <span style="color: #bb9af7;">let</span> <span style="color: #c0caf5;">anchor</span> = <span style="color: #c0caf5;">Html</span>::parse_fragment<span style="color: #7aa2f7;">(</span><span style="color: #a9b1d6; background-color: #1a1b26;">&amp;</span>t<span style="color: #7aa2f7;">)</span>
+          .select<span style="color: #7aa2f7;">(</span><span style="color: #a9b1d6; background-color: #1a1b26;">&amp;</span>anchor_selector<span style="color: #7aa2f7;">)</span>
+          .map<span style="color: #7aa2f7;">(</span>|x| x.inner_html<span style="color: #ff9e64;">()</span><span style="color: #7aa2f7;">)</span>
+          .next<span style="color: #7aa2f7;">()</span>;
+      <span style="color: #bb9af7;">if</span> <span style="color: #bb9af7;">let</span> <span style="color: #c0caf5;">Some</span><span style="color: #7aa2f7;">(</span>s<span style="color: #7aa2f7;">)</span> = anchor <span style="color: #7aa2f7;">{</span>
+          clean_traits.push<span style="color: #ff9e64;">(</span>s.trim<span style="color: #73daca;">()</span>.to_string<span style="color: #73daca;">()</span><span style="color: #ff9e64;">)</span>;
+      <span style="color: #7aa2f7;">}</span> <span style="color: #bb9af7;">else</span> <span style="color: #7aa2f7;">{</span>
+          clean_traits.push<span style="color: #ff9e64;">(</span>t.trim<span style="color: #73daca;">()</span>.to_string<span style="color: #73daca;">()</span><span style="color: #ff9e64;">)</span>;
+      <span style="color: #7aa2f7;">}</span>
+  <span style="color: #a9b1d6;">}</span>
+</pre>
+</div>
+
+<p>
+In some cases the traits contained anchor tags, while in others they didn&rsquo;t. I removed the anchor tags by retrieving the inner HTML in the cases where the string contained an anchor tag. As this function returned an <code>Option&lt;String&gt;</code>, I used an if let to check if the anchor was Some or None and then trimmed the remaining string.
+</p>
+
+<p>
+Next I checked to see if I had successfully retrieved data for each trait in the struct. In some cases the size trait was contained in a <code>&lt;span class="size"&gt;</code> with a class of <code>size</code> to correctly color it, and in others it was in a <code>&lt;span&gt;</code> with no class. To handle these cases I first checked if the scraper had returned <code>Some(String)</code> and in that case, extracted the string from the <code>Option&lt;String&gt;</code> in the <code>else</code> of the <code>if let</code> statement I looped over the traits and used and used a match to see if any of the traits matched a valid size.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-rust">  <span style="color: #bb9af7;">let</span> <span style="color: #c0caf5;">size</span>: <span style="color: #c0caf5;">String</span> = <span style="color: #bb9af7;">if</span> <span style="color: #bb9af7;">let</span> <span style="color: #c0caf5;">Some</span><span style="color: #a9b1d6;">(</span>s<span style="color: #a9b1d6;">)</span> = size_base <span style="color: #a9b1d6;">{</span>
+      s
+  <span style="color: #a9b1d6;">}</span> <span style="color: #bb9af7;">else</span> <span style="color: #a9b1d6;">{</span>
+      <span style="color: #bb9af7;">let</span> <span style="color: #bb9af7;">mut</span> <span style="color: #c0caf5;">size_string</span> = <span style="color: #c0caf5;">String</span>::from<span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"NO SIZE"</span><span style="color: #7aa2f7;">)</span>;
+      <span style="color: #bb9af7;">let</span> <span style="color: #bb9af7;">mut</span> <span style="color: #c0caf5;">new_traits</span>: <span style="color: #c0caf5;">Vec</span><span style="color: #7aa2f7;">&lt;</span><span style="color: #c0caf5;">String</span><span style="color: #7aa2f7;">&gt;</span> = <span style="color: #c0caf5;">Vec</span>::new<span style="color: #7aa2f7;">()</span>;
+      <span style="color: #bb9af7;">for</span> <span style="color: #c0caf5;">t</span> <span style="color: #bb9af7;">in</span> traits <span style="color: #7aa2f7;">{</span>
+          <span style="color: #bb9af7;">match</span> t.as_str<span style="color: #ff9e64;">()</span> <span style="color: #ff9e64;">{</span>
+              <span style="color: #9ece6a;">"Tiny"</span> =&gt; size_string = t,
+              <span style="color: #9ece6a;">"Small"</span> =&gt; size_string = t,
+              <span style="color: #9ece6a;">"Medium"</span> =&gt; size_string = t,
+              <span style="color: #9ece6a;">"Large"</span> =&gt; size_string = t,
+              <span style="color: #9ece6a;">"Huge"</span> =&gt; size_string = t,
+              <span style="color: #9ece6a;">"Gargantuan"</span> =&gt; size_string = t,
+              _ =&gt; new_traits.push<span style="color: #73daca;">(</span>t<span style="color: #73daca;">)</span>,
+          <span style="color: #ff9e64;">}</span>;
+      <span style="color: #7aa2f7;">}</span>
+      traits = new_traits;
+      size_string
+  <span style="color: #a9b1d6;">}</span>;
+</pre>
+</div>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Emacs Emmet React</title>
+      <pubDate>Sun, 04 Feb 2024 10:03:00 -0400</pubDate>
+      <guid>/posts/emmet-react.html</guid>
+      <link>/posts/emmet-react.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+<a href="https://github.com/Naokotani/emmet-react-mode/">emmet-react-mode</a> is my first attempt at creating a minor mode in Emacs. It is designed as an extension for <a href="https://github.com/smihica/emmet-mode">emmet-mode</a> though it doesn&rsquo;t rely on it. I find myself frequently writing out components for Svelte and React that have several props and I wanted a convenient way to quickly write them in Emacs.
+</p>
+<div id="outline-container-orgbcfdc8b" class="outline-2">
+<h2 id="orgbcfdc8b">Expand Component</h2>
+<div class="outline-text-2" id="text-orgbcfdc8b">
+<p>
+The minor mode is centered around three interactive functions. The first, <code>emmet-react-expand-component</code> expands a shorthand version of a of a component with props that are separated by periods. If you write the shorthand starting with the component name and then separate the props with periods in the follow form <code>Foo.bar.baz</code>, it will  expand to <code>&lt;Foo bar='' baz='' /&gt;</code> and move the cursor between the first single quotes. If you want to use <code>{}</code> or <code>""</code>, you can set <code>emmet-react-prop-pair</code> to any pair of characters you want to wrap with.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">defun</span> <span style="color: #7aa2f7;">emmet-react-expand-component</span> <span style="color: #7aa2f7;">()</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">interactive</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">message</span> <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">string</span> <span style="color: #73daca;">(</span><span style="color: #ff9e64;">region-end</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">let</span> <span style="color: #ff9e64;">(</span><span style="color: #73daca;">(</span>component<span style="color: #73daca;">)</span>
+        <span style="color: #73daca;">(</span>propList<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">setq</span> propList <span style="color: #73daca;">(</span>emmet-react-get-component<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">setq</span> component <span style="color: #73daca;">(</span><span style="color: #bb9af7;">pop</span> propList<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span>emmet-react-insert-component propList component<span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org050acd7" class="outline-2">
+<h2 id="org050acd7">Wrap Component</h2>
+<div class="outline-text-2" id="text-org050acd7">
+<p>
+<code>emmet-react-wrap-component</code> is useful for situations where you want to wrap Svelte or JSX in a component. You will be prompted to enter the component in the echo area. If you want to add props to the component, you can  separate them with periods and they will be automatically separated. For example <code>Foo.bar.baz</code> will be expanded to <code>&lt;Foo bar='' baz''&gt;&lt;/Foo&gt;</code>  and the cursor will be moved between the quotes after <code>baz</code>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">defun</span> <span style="color: #7aa2f7;">emmet-react-wrap-component</span> <span style="color: #7aa2f7;">()</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">interactive</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">let</span> <span style="color: #ff9e64;">(</span><span style="color: #73daca;">(</span>str <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">read-string</span> <span style="color: #9ece6a;">"Enter component: "</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+        <span style="color: #73daca;">(</span>propList<span style="color: #73daca;">)</span>
+        <span style="color: #73daca;">(</span>body <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">buffer-substring</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">region-end</span><span style="color: #7aa2f7;">)</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">region-beginning</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+        <span style="color: #73daca;">(</span>component<span style="color: #73daca;">)</span>
+        <span style="color: #73daca;">(</span>propPos<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">setq</span> propList <span style="color: #73daca;">(</span><span style="color: #ff9e64;">split-string</span> str <span style="color: #9ece6a;">"\\."</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">setq</span> component <span style="color: #73daca;">(</span><span style="color: #bb9af7;">pop</span> propList<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">delete-region</span> <span style="color: #73daca;">(</span><span style="color: #ff9e64;">region-end</span><span style="color: #73daca;">)</span> <span style="color: #73daca;">(</span><span style="color: #ff9e64;">region-beginning</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #73daca;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">"&lt;%s"</span> component<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">js-indent-line</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">while</span> propList
+      <span style="color: #73daca;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">" %s=%s"</span>
+                      <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">pop</span> propList<span style="color: #7aa2f7;">)</span>
+                      emmet-react-prop-pair<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+      <span style="color: #73daca;">(</span><span style="color: #bb9af7;">if</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">not</span> propPos<span style="color: #a9b1d6;">)</span>
+          <span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">setq</span> propPos <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">-</span> <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">point</span><span style="color: #ff9e64;">)</span> <span style="color: #ff9e64; font-weight: bold;">1</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #9ece6a;">"&gt;\n"</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">insert</span> body<span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #73daca;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">"&lt;/%s&gt;\n"</span> component<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">if</span> emmet-react-auto-indent
+        <span style="color: #73daca;">(</span>web-mode-buffer-indent<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">cond</span> <span style="color: #73daca;">(</span><span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">eq</span> <span style="color: #c0caf5;">evil-state</span> <span style="color: #7dcfff;">'</span><span style="color: #e0af68;">visual</span><span style="color: #a9b1d6;">)</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">evil-insert-state</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">if</span> propPos
+        <span style="color: #73daca;">(</span><span style="color: #ff9e64;">goto-char</span> propPos<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgaf41533" class="outline-2">
+<h2 id="orgaf41533">Expand Wrap Component</h2>
+<div class="outline-text-2" id="text-orgaf41533">
+<p>
+If you want to generate a wrapping style JSX component with props you can use <code>emmet-react-expand-wrap-component</code>. This function is not used to wrap highlighted text, it simply generates the component but with an opening and closing tag. For example <code>Foo.bar.baz</code> will expand to <code>&lt;Foo bar='' baz=''&gt;&lt;/Foo&gt;</code>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp">
+<span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">defun</span> <span style="color: #7aa2f7;">emmet-react-expand-wrap-component</span> <span style="color: #7aa2f7;">()</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">interactive</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">let</span> <span style="color: #ff9e64;">(</span><span style="color: #73daca;">(</span>component<span style="color: #73daca;">)</span>
+        <span style="color: #73daca;">(</span>propList<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">setq</span> propList <span style="color: #73daca;">(</span>emmet-react-get-component<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">setq</span> component <span style="color: #73daca;">(</span><span style="color: #bb9af7;">pop</span> propList<span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span>emmet-react-insert-wrap-component propList component<span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org34d8652" class="outline-2">
+<h2 id="org34d8652">Future plans</h2>
+<div class="outline-text-2" id="text-org34d8652">
+<p>
+There are a few things I would like to add to this project over time. I would like the functions to be smart enough to recognize when the user has set the prop to a specific value. I think the easiest way to do this will be to continue to split the strings on the periods, but to later also split them by = and wrap what comes after the equals between the selected characters. I think it would also be nice to have a variable to determine where the cursor should be moved after expanding the component.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Emacs CMS</title>
+      <pubDate>Fri, 02 Feb 2024 05:47:00 -0400</pubDate>
+      <guid>/posts/emacs-cms.html</guid>
+      <link>/posts/emacs-cms.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <div id="outline-container-org1bb47ef" class="outline-2">
+<h2 id="org1bb47ef">New Implementation</h2>
+<div class="outline-text-2" id="text-org1bb47ef">
+<p>
+The following in this blog all remains the case for the current production version of the blog, but I have recently started a new version using Bun in Place of Node and I am using TypeScript in place of vanilla JS. Instead of using Express, I am creating a new API from scratch with the built in <code>Bun.serve()</code>. I also decided to replace squirrelly templates with mustache.js templates to try a different approach to HTML templates. For now I think I will stick with using Cheerio to parse the HTML for data, but perhaps I will switch that out as well as the project moves forward. I am also adding some better logic for dealing with images so I can handle different file formats. So far I am happy with this new implementation. Using  Bun&rsquo;s built in method for sending and receiving HTTP requests is much more in keeping with the overall theme of simplicity I am trying to go for with this project. I will probably switch to this newer version when its done.
+</p>
+</div>
+</div>
+<div id="outline-container-orgbc6dd7a" class="outline-2">
+<h2 id="orgbc6dd7a">Emacs Org Mode as a CMS</h2>
+<div class="outline-text-2" id="text-orgbc6dd7a">
+<p>
+I played around with a few ideas of how I would make this blog, but finally settled on a workflow where I could upload my org files to a remote server using a simple Node app, <a href="https://htmx.org/">HTMX</a>, and functionality that comes built into Emacs. I organize my notes with <a href="https://protesilaos.com/emacs/denote">Denote.el</a>, so I settled on a setup where I didn&rsquo;t need to leave my editor to update my blog.  I will be much more liable to keep my projects blog up to date if I have an easily accessible workflow. Here is a basic outline of the steps I took to get this up and running excluding the setup of the sever itself (I used <a href="https://www.digitalocean.com/">Digital Ocean</a> and <a href="https://nginx.org/">Nginx</a>, but any VPS will do fine). The full code is <a href="https://github.com/Naokotani/blog">here</a> on my GitHub account.
+</p>
+</div>
+</div>
+<div id="outline-container-orgb115f99" class="outline-2">
+<h2 id="orgb115f99">Export Org files to the remote server</h2>
+<div class="outline-text-2" id="text-orgb115f99">
+<p>
+First I  save the file to a blog directory on my local file system and use rsync with <code>OK-IF-ALREADY-EXISTS</code> set to <code>t</code> in order to update the blog post on my remote file system. I just export the body without any head section or doctype. If this is a new blog, I put a thumbnail for it in the blog/images directory which will be updated when I run the function.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-emacs-lisp"><span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">defun</span> <span style="color: #7aa2f7;">nao/export-org-to-blog</span> <span style="color: #7aa2f7;">()</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">interactive</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">setq</span> <span style="color: #c0caf5;">org-html-doctype</span> <span style="color: #9ece6a;">"html5"</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">let</span> <span style="color: #ff9e64;">(</span><span style="color: #73daca;">(</span>filename <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">org-html-export-to-html</span> nil nil nil t<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">copy-file</span> <span style="color: #73daca;">(</span><span style="color: #ff9e64;">concat</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">file-name-sans-extension</span> filename<span style="color: #a9b1d6;">)</span> <span style="color: #9ece6a;">".png"</span><span style="color: #73daca;">)</span>
+               <span style="color: #9ece6a;">"/rsync:server:/path/to/images"</span> t<span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">copy-file</span> filename <span style="color: #9ece6a;">"/rsync:server/path/to/html"</span> t<span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+</pre>
+</div>
+
+<p>
+In order to get the file to save with the correct name, I manually set the file name using <code>EXPORT_FILE_NAME</code> like so <code>#+EXPORT_FILE_NAME: ~/Documents/denote/blog/programming-blog.html</code>. That&rsquo;s it on the Emacs side, not much to it.
+</p>
+</div>
+</div>
+<div id="outline-container-orgae95bea" class="outline-2">
+<h2 id="orgae95bea">Server side</h2>
+<div class="outline-text-2" id="text-orgae95bea">
+<p>
+Server side I use a simple Node app that uses <a href="https://expressjs.com/">Express</a> to create a  REST API that grabs the filenames, which are already in slug format, to create the list of links for the blog posts. The if/blocks are used to either make the response the full page if they navigate form outside the website, or just the content if they use internal navigation.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript">
+app.get(<span style="color: #9ece6a;">'/blog/*'</span>, <span style="color: #bb9af7;">async</span> <span style="color: #bb9af7;">function</span> (<span style="color: #c0caf5;">req</span>, <span style="color: #c0caf5;">res</span>) {
+    <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">slug</span> = req.params[<span style="color: #ff9e64; font-weight: bold;">0</span>];
+    <span style="color: #bb9af7;">if</span> (req.headers[<span style="color: #9ece6a;">"hx-request"</span>] === <span style="color: #9ece6a;">"true"</span>) {
+        <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">path</span> = <span style="color: #9ece6a;">'/path/to/blog/'</span>
+        <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">data</span> = <span style="color: #bb9af7;">await</span> fs.readFile(path+slug, <span style="color: #9ece6a;">'utf8'</span>)
+        res.send(data);
+    } <span style="color: #bb9af7;">else</span> {
+        <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">route</span> = [slug]
+
+        <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">data</span> = {
+            route: route,
+        }
+
+        <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">html</span> = Sqrl.render(newRoute(), data);
+        res.send(html);
+    }
+})
+
+</pre>
+</div>
+
+<p>
+I use the <a href="https://squirrelly.js.org/">squirrel</a> templates to create the different content such as the lists of links and cards. For example, you can set up links like this:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript">    &lt;nav&gt;
+    &lt;h2 <span style="color: #bb9af7;">class</span>=<span style="color: #9ece6a;">"post-header"</span>&gt;Projects&lt;/h2&gt;
+    &lt;ul&gt;
+    {{@each(it.files) =&gt; val, index}}
+    &lt;li&gt;
+    &lt;a href=<span style="color: #9ece6a;">"#"</span> hx-push-url=<span style="color: #9ece6a;">"true"</span> hx-get=<span style="color: #9ece6a;">"a-domain.com/blog/{{val}}"</span> hx-target=<span style="color: #9ece6a;">"#contentDiv"</span> hx-swap=<span style="color: #9ece6a;">"innerHTML"</span>&gt;
+    {{it.labels[index]}}
+&lt;/a&gt;
+    &lt;/li&gt;
+    {{<span style="color: #9ece6a;">/each}}</span>
+<span style="color: #9ece6a;">        &lt;/</span>ul&gt;
+      &lt;/nav&gt;
+</pre>
+</div>
+
+<p>
+This will create a list of links from the filenames and then when the links are clicked, they will swap with the content that is currently in the <code>#contentDiv</code>.
+</p>
+</div>
+</div>
+<div id="outline-container-orgbf5d264" class="outline-2">
+<h2 id="orgbf5d264">Images and Summaries for cards</h2>
+<div class="outline-text-2" id="text-orgbf5d264">
+<p>
+In order to get a summary for each file I add a <code>&lt;p&gt;</code> tag with the summary class at the top of my org file and then I use <a href="https://cheerio.js.org/">cheerio</a> to parse the html and pull out the summary text. I then just use a CSS <code>display: none;</code> so the summary doesn&rsquo;t appear in the actual blog post. To get the image I simply split the filename and replace .html with .png. If you wanted to use multiple file types it would be simple enough to create a more elaborate solution, but my screenshot app defaults to png, which is acceptable for the purposes of a simple blog.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript">#+BEGIN_summary
+Using Emacs as a CMS <span style="color: #bb9af7;">with</span> a simple Node application using HTML templates and HTMX
+#+END_summary
+
+<span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">files</span> = <span style="color: #bb9af7;">await</span> fs.readdir(path);
+
+<span style="color: #bb9af7;">for</span> (file <span style="color: #bb9af7;">of</span> files) {
+    <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">img</span> = file.split(<span style="color: #9ece6a;">"."</span>);
+    <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">data</span> = <span style="color: #bb9af7;">await</span> fs.readFile(path+file, <span style="color: #9ece6a;">'utf8'</span>);
+    links.push(file);
+    titles.push(makeTitle(file));
+    images.push(img[<span style="color: #ff9e64; font-weight: bold;">0</span>] + <span style="color: #9ece6a;">".png"</span>)
+    <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">$</span> = cheerio.load(data);
+    summaries.push($(<span style="color: #9ece6a;">'div.summary p'</span>).text());
+}
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org847b87e" class="outline-2">
+<h2 id="org847b87e">Problems with this Workflow</h2>
+<div class="outline-text-2" id="text-org847b87e">
+<p>
+The major issue with this workflow is that I don&rsquo;t have a lot of control the HTML that org export creates. It is possible to customize it further, but it requires quite a bit of customization. As is stands you would most likely need to write custom CSS to target the classes that org export creates, which are named well and extensive enough to do what you need. If you want to make use of bootstrap or another CSS framework, there are probably much easier ways to produce a blog than this, but if you don&rsquo;t mind writing CSS, its a pretty simple elegant solution.
+</p>
+</div>
+</div>
+<div id="outline-container-org25ef9be" class="outline-2">
+<h2 id="org25ef9be">Future plans for the Project</h2>
+<div class="outline-text-2" id="text-org25ef9be">
+<p>
+Aside from tweaking the CSS to get it work better on different screen sizes and improve the overall look and feel, I would like to add some logic to add a default thumbnail if I don&rsquo;t specific one by putting it in the blog directory. As the blog grows I might also try to implement a directory structure that would be reflected on the UI by nesting the posts under categories, JavaScript, Rust, Ideas, etc.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Quizbot</title>
+      <pubDate>Fri, 17 Nov 2023 04:10:00 -0400</pubDate>
+      <guid>/posts/quizbot.html</guid>
+      <link>/posts/quizbot.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+Quizbot is a task management bot written with <a href="https://discord.js.org/">discord.js</a> that is designed to be used for students or discords that are devoted to a university or college program. The bot allows users to interact with four commands, one of which is restricted to server admins.
+</p>
+<div id="outline-container-org0411ab0" class="outline-2">
+<h2 id="org0411ab0">Class</h2>
+<div class="outline-text-2" id="text-org0411ab0">
+<p>
+Class is the admin only command. It allows users to create, add, remove and change the status of classes by using interactive commands. Because the tasks tables have a foreign key relationship dependency on the class table a class can only be removed if all of the tasks for that class have been removed. To solve this problem I decided to make a column in the class table that determines whether or not the class is &ldquo;active&rdquo; or &ldquo;inactive&rdquo;  and if the class inactive, then no tasks will appear for that class when a user shows tasks. Once all tasks that use the classes primary key as their foreign key are removed, you are free to remove the class. By default, classes are set to be active when they are created.
+</p>
+</div>
+</div>
+<div id="outline-container-orge6ac3b0" class="outline-2">
+<h2 id="orge6ac3b0">Task</h2>
+<div class="outline-text-2" id="text-orge6ac3b0">
+<p>
+The task command is how users create the tasks themselves. Using the task gives the user a prompt with select style menus with available classes and provides fields to add the date for the task. After entering this data a modal allows for confirmation of the task and gives an opportunity  enter additional longer form information and set the time.
+</p>
+</div>
+</div>
+<div id="outline-container-org4b84e16" class="outline-2">
+<h2 id="org4b84e16">Next and Show</h2>
+<div class="outline-text-2" id="text-org4b84e16">
+<p>
+The next and show commands are how users display the tasks. I decided to make these commands ephemeral to reduce spam in the server, while the task command is not ephemeral to make it less likely for people to try to enter the same task multiple times.
+</p>
+</div>
+</div>
+<div id="outline-container-org06bb967" class="outline-2">
+<h2 id="org06bb967">Why SQLite?</h2>
+<div class="outline-text-2" id="text-org06bb967">
+<p>
+I decided to use SQLite for this project mainly for the sake of simplicity. For personal use it would just as easy to use, for example, a PostgreSQL, but if I wanted to make the bot available for others to use SQLite has the advantage of being much easier for users to install use as it can set itself up without any need for extra input from the user. In this case simplicity seemed more important than scalability or efficiency of the database.
+</p>
+</div>
+</div>
+<div id="outline-container-org1223ff5" class="outline-2">
+<h2 id="org1223ff5">What&rsquo;s Next?</h2>
+<div class="outline-text-2" id="text-org1223ff5">
+<p>
+I designed this bot so that it could be made available for others to use, but as it stands it is not robust enough to be  made available for others to use.
+</p>
+</div>
+<div id="outline-container-orgba1139c" class="outline-3">
+<h3 id="orgba1139c">Database Maintenance</h3>
+<div class="outline-text-3" id="text-orgba1139c">
+<p>
+For one thing, there is currently no good way to delete classes or tasks. Tasks need to be manually deleted and deleting classes requires users to delete all tasks associated with a class. This would be incredibly cumbersome for normal users. I would like to implement a solution that is a scheduled task that, perhaps once a day and when the app starts, will check for classes that have no associated tasks and were created more than a several months ago (perhaps four months or around the length of a normal semester). Furthermore, tasks whose due date has past by more than perhaps two weeks will automatically be deleted. This way, the database should automatically clean itself without getting in the way too much by deleting things in a way that isn&rsquo;t expected. It would probably be good to create a way for admins to change these values from the defaults.
+</p>
+</div>
+</div>
+<div id="outline-container-org6280021" class="outline-3">
+<h3 id="org6280021">Validation</h3>
+<div class="outline-text-3" id="text-org6280021">
+<p>
+The other place the bot needs improvement is validation and testing. It made some effort to validate data, but more effort is required here. I am considering rewriting the bot in typescript to ensure that the data being sent to the database is in the correct type in order to prevent data inconsistency. I would also like to do more work on testing and using TypeScript would reduce the complexity of the tests I would need to write by elimination errors from inconsistencies in types.
+</p>
+</div>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
+      <title>Pathfinder Encounter Builder</title>
+      <pubDate>Tue, 19 Sep 2023 07:20:00 -0300</pubDate>
+      <guid>/posts/encounter-builder.html</guid>
+      <link>/posts/encounter-builder.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+<a href="https://alembichead.com/encounter-builder">PF2e Encounter Builder</a> is a Rust and Svelte web application that uses a Rust API and a Svelte front-end. The web application is designed to dynamically create encounters for a popular table top roll playing game called Pathfinder 2e. Using an HTML form on the front-end, users are able to configure their search constraints and then <code>fetch()</code> sends a query data to the Rust API. The rust back-end calculates the encounter budget and other query parameters which is then used to query a PostgreSQL database and send it as JSON back to the client. Additionally, to get the dataset, I built a web scraper in Rust to obtain and build the SQL database from an open source document that I will cover in another blog post.
+</p>
+<div id="outline-container-org4a58066" class="outline-2">
+<h2 id="org4a58066">Why Rust</h2>
+<div class="outline-text-2" id="text-org4a58066">
+<p>
+I had initially considered using TypeScript for this project because I knew that I wanted a type system. Calculating the budget requires enough calculations that I knew that using vanilla JavaScript would create major headaches and be prone to bugs. I ended up settling on Rust because I thought that it would be able to handle manipulating the data structures more efficiently and make the app feel snappier. I don&rsquo;t know what kind of performance gain, if any, this actually gives me and benchmarking it would require me to rewrite large portions of the API in JavaScript.
+</p>
+
+<p>
+While my initial decision was driven by pure speculation about Rust vs. JavaScript performance, using Rust had other advantages that I did not anticipate.
+</p>
+</div>
+<div id="outline-container-org9ac6310" class="outline-3">
+<h3 id="org9ac6310">Separation of Concerns</h3>
+<div class="outline-text-3" id="text-org9ac6310">
+<p>
+This project helped me gain new insights into OOP. I had to solve the problem of how to effectively translate between the Rust, JavaScript, SQL and Json methods for working with objects and communicate between the JavaScript iteration on the client and the Rust iteration of the same concepts on the server. On the server I used structs to store and manipulate the data and enums to control the state of the objects based on data from the client side as well as query results from the PostgreSQL database. On the client-side I used a class based approach to represent the objects and setter methods for retrieving new data from the server. I used the state management tools built into Svelte in conjunction with an HTML form to manage state on the client side. The client-side required extra attention to validation in order to ensure that the server was obtaining valid data for instantiating the structs and safely querying the database.
+</p>
+
+<p>
+A further insight I gained into OOP was the effect that using two programming languages and separate processes on the server had on coupling. While the concepts of a monster and an encounter needed to be represented to the client and on the server to query the database and generate an HTTP response for the client, the methods required for these tasks were entirely different. Using two processes promoted a greater degree of encapsulation and an extra layer of validation on the server-side where the data needed to adhere to Rust&rsquo;s rigid typing system. One drawback to this approach, how the two processes communicate, was mitigated to a large degree by the fact that the data was being translated into HTTP requests and responses regardless.
+</p>
+
+<p>
+While in many cases it can make code more maintainable having it in a common language, if the back-end logic were written in JavaScript and existed in the same Sveltekit application, the temptation to couple would be huge. This project is small enough that would probably not be critical, but in large projects this separation of concerns could have OOP advantages.
+</p>
+
+<p>
+There are a few minor disadvantages that I confronted. Switching between languages requires, or at least strongly encourages, a context switching in terms of naming conventions. This could create confusion over what variables mean as they are in a slightly different format, and requires some thinking about at what point you want to change the naming conventions when sending the data between the front-end and back-end. I don&rsquo;t think this is a major concern, but it&rsquo;s perhaps worth considering.
+</p>
+
+<p>
+The other disadvantage I encountered was process management. Using Rust and JS together requires me to run and maintain two separate processes on the server. The overhead of the Rust process is negligible in terms of resources, but it separates the logging of the two processes. This can be viewed as a disadvantage or as an advantage as it keeps my front-end and back-end logs completely separate making identifying where problems are arising easier.
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org60a8317" class="outline-2">
+<h2 id="org60a8317">Testing</h2>
+<div class="outline-text-2" id="text-org60a8317">
+<p>
+In order to test the app, I am using three different overall groups of tests. First, I am running smaller scale unit tests on functions, second an integration test that tested the back-end as a whole, but bypassing the network, and finally I wrote a separate test app with Node, <a href="https://pptr.dev/">Puppeteer</a> and <a href="https://mochajs.org/">Mocha</a>. The latter two tests ended up being the most helpful in finding bugs so far.
+</p>
+
+<p>
+My strategy for the integration test was to begin and end with the two structs that implemented the serde json  <code>#[derive(Deserialize)]</code> and <code>#[derive(Serialize)]</code> macros that deserialized the URL query string coming in from the client and then serialized the json response back to the client. The goal was the isolate just the back-end logic, ensure that it was correct so that I could rule that out when doing the end to end tests that tested the entire route from client, server, database, server and then back to the client. Any remaining issues then should lay with either the network or the front-end. This test aims to iterate through as many data combinations as possible and isolated some bugs that cropped up in edge cases.
+</p>
+
+<p>
+Once I had isolated bugs with the server side integration test, I used puppeteer to enter similar data to what I had hard coded into the tests on the server side in the integration test. I then captured the json with puppeteer:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript">  <span style="color: #bb9af7;">await</span> page.waitForResponse(<span style="color: #bb9af7;">async</span> response =&gt; {
+    <span style="color: #bb9af7;">return</span> (<span style="color: #bb9af7;">await</span> response.text()).startsWith(<span style="color: #9ece6a;">'{"id"'</span>);
+  });
+</pre>
+</div>
+
+<p>
+<code>{"id"</code> being the first part of the json response. Once I had the json I used the mocha library to test the data.
+</p>
+
+<p>
+I ran into a rather frustrating issue with puppeteer that was a valuable lesson. I kept getting incorrect data back from the server when running the Node end to end tests, but after some time I realized that, after I loaded the page, the select input that I was trying to manipulate did not exist yet. It wasn&rsquo;t causing an error, but the form was not being submitted correctly. I used  <code>await page.waitForNetworkIdle();</code> in order to ensure that the page was fully loaded and then submitted the form data and the tests passed as expected.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+  </channel>
+</rss> 
