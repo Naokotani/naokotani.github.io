@@ -5,7 +5,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <title>Quizbot</title>
+  <title>Go Emacs Static Blog Generator</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Chris Hughes&#39; developer blog focused on web development, programming, and technology." />
   <link rel="stylesheet" type="text/css" href="/static/css/normalize.css">
@@ -30,7 +30,7 @@
     integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
     crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="shortcut icon" type="image/png" href="/static/icons/favicon-16x16.png" />
-  <link rel="alternate" type="application/rss+xml" title="Quizbot" href="/rss">
+  <link rel="alternate" type="application/rss+xml" title="Go Emacs Static Blog Generator" href="/rss">
   <script src="/static/js/colors.js" defer></script>
   <script src="/static/js/menu.js" defer></script>
 </head>
@@ -110,68 +110,76 @@
 <div id="contentDiv" class="contentDiv">
 
 <summary>
-  A discord bot for managing assignments and quizes by storing them with SQLite.
+  A Static blog generator that leverages Go and Emacs Org mode.
 </summary>
-<h1>Quizbot</h1>
+<h1>Go Emacs Static Blog Generator</h1>
 <p><small class="date">Published: 8 Oct 2025 at 09:37 ADT</small></p>
-<p><small class="tech">Discord.js | JavaScript</small></p>
+<p><small class="tech">Go | Emacs</small></p>
 <p>
-Quizbot is a task management bot written with <a href="https://discord.js.org/">discord.js</a> that is designed to be used for students or discords that are devoted to a university or college program. The bot allows users to interact with four commands, one of which is restricted to server admins.
+<a href="https://github.com/naokotani/go-emacs">Go Emacs</a> is a static blog site generator written in Go that leverages Emacs Org mode&rsquo;s HTML exporting functionality. This is the most recent evolution of my <a href="https://chris-hughes.dev/blog/emacs-CMS.html">Emacs CMS</a> idea to use Org mode as a content management system for my blog. Go Emacs comes with the source code needed to generate a <code>go-emacs</code> binary that is used with the included <code>go.emacs.el</code> to generate blog posts.
 </p>
-<div id="outline-container-org0411ab0" class="outline-2">
-<h2 id="org0411ab0">Class</h2>
-<div class="outline-text-2" id="text-org0411ab0">
+<div id="outline-container-org0ebc30e" class="outline-2">
+<h2 id="org0ebc30e">Configuration</h2>
+<div class="outline-text-2" id="text-org0ebc30e">
 <p>
-Class is the admin only command. It allows users to create, add, remove and change the status of classes by using interactive commands. Because the tasks tables have a foreign key relationship dependency on the class table a class can only be removed if all of the tasks for that class have been removed. To solve this problem I decided to make a column in the class table that determines whether or not the class is &ldquo;active&rdquo; or &ldquo;inactive&rdquo;  and if the class inactive, then no tasks will appear for that class when a user shows tasks. Once all tasks that use the classes primary key as their foreign key are removed, you are free to remove the class. By default, classes are set to be active when they are created.
+One issue that I faced in the project, was how I was going to get the information from an Org mode document into the HTML for the website. In the previous iteration, I baked the metadata for a post directly into the HTML itself using a <code>BEGIN_EXPORT html</code> org source block. <code>org-html-export-to-html</code> will pick this up and insert the snippet  into the produced HTML document. This worked well because it meant that I only needed to send one HTML file to the server, but there were drawbacks. For example, if I didn&rsquo;t want to display parts of the snippet, I needed to remove it somehow server side. It was also cumbersome and ugly having all the Org versions of my  blog posts starting with a big block of HTML. For Go Emacs, I didn&rsquo;t have  to send files to the sever because everything was taking place on my host machine.
 </p>
-</div>
-</div>
-<div id="outline-container-orge6ac3b0" class="outline-2">
-<h2 id="orge6ac3b0">Task</h2>
-<div class="outline-text-2" id="text-orge6ac3b0">
+
 <p>
-The task command is how users create the tasks themselves. Using the task gives the user a prompt with select style menus with available classes and provides fields to add the date for the task. After entering this data a modal allows for confirmation of the task and gives an opportunity  enter additional longer form information and set the time.
+After some research I realized that the <code>org-collect-keywords</code> function could not only collect org keywords, but could extract arbitrary user defined keywords. This felt like a good &ldquo;Org native&rdquo; way to store and collect post metadata, but the question remained: how to get the metadata from Elisp land into Go land?
 </p>
 </div>
-</div>
-<div id="outline-container-org4b84e16" class="outline-2">
-<h2 id="org4b84e16">Next and Show</h2>
-<div class="outline-text-2" id="text-org4b84e16">
+<div id="outline-container-org507b0c6" class="outline-3">
+<h3 id="org507b0c6">To TOML or not to TOML</h3>
+<div class="outline-text-3" id="text-org507b0c6">
 <p>
-The next and show commands are how users display the tasks. I decided to make these commands ephemeral to reduce spam in the server, while the task command is not ephemeral to make it less likely for people to try to enter the same task multiple times.
+After considering a few options, I decided to use TOML files to store the extracted keyword metadata and make it accessible to Go. TOML syntax is incredibly simple, and it is easy to deserialize on the Go end. Given that I was working with Emacs and Elisp, I considered trying to use Elisp itself to store configuration data, but I could not find a reasonable or reliable way to parse Elisp inside Go. It seemed like I would have to write my own package to parse Elisp inside Go, which felt outside the scope of what I was trying to accomplish. Similarly, I considered using some other Lisp dialect to keep the lispy emacsy feel going, but I ran into similar issues. As it stands, when a page or blog post is <code>published</code> with <code>go-emacs-publish</code>, a <code>metadata.toml</code> file is produced, which is then easily readable by the Go binary.
 </p>
 </div>
 </div>
-<div id="outline-container-org06bb967" class="outline-2">
-<h2 id="org06bb967">Why SQLite?</h2>
-<div class="outline-text-2" id="text-org06bb967">
+<div id="outline-container-org90f35fb" class="outline-3">
+<h3 id="org90f35fb">styles.toml</h3>
+<div class="outline-text-3" id="text-org90f35fb">
 <p>
-I decided to use SQLite for this project mainly for the sake of simplicity. For personal use it would just as easy to use, for example, a PostgreSQL, but if I wanted to make the bot available for others to use SQLite has the advantage of being much easier for users to install use as it can set itself up without any need for extra input from the user. In this case simplicity seemed more important than scalability or efficiency of the database.
+After creating this <code>metadata.toml</code> workflow, I realized that I could also use TOML to store CSS style information. Instead of expecting users to hand-edit the CSS files themselves, CSS styles are defined in a <code>styles.toml</code> file where the site colors and fonts can be easily configured. At runtime, this TOML file is then read by the Go binary to generate a <code>vars.css</code> file which holds all of the CSS variables available to configure. I could have simply allowed for the variables to be edited directly in a .css file, but I thought that it would make for a better user experience to restrict configuration to either org tags, or TOML files.
 </p>
 </div>
 </div>
-<div id="outline-container-org1223ff5" class="outline-2">
-<h2 id="org1223ff5">What&rsquo;s Next?</h2>
-<div class="outline-text-2" id="text-org1223ff5">
+</div>
+<div id="outline-container-org9a7799a" class="outline-2">
+<h2 id="org9a7799a">Tags</h2>
+<div class="outline-text-2" id="text-org9a7799a">
 <p>
-I designed this bot so that it could be made available for others to use, but as it stands it is not robust enough to be  made available for others to use.
+I wanted to add a searchable &ldquo;tags&rdquo; feature that allowed for posts to be sorted by tag or topic. First I created an org keyword to store the tags for the post, for example <code>#+tags: Emacs Go</code>. In <code>go-emacs-publish</code> I then write those tags into the TOML file by collecting the tags with <code>(org-collect-keywords '("TAGS"))</code>, which returns an alists of the keywords and their values. You can then extract the values with something like <code>(car (alist-get "TAGS" keywords nil nil #'equal))</code>. A quirk of <code>alist-get</code> is that it uses the <code>eq</code> function to test the keys to find the correct one to return, but <code>eq</code> only works on symbols and <code>org-collect-keywords</code> returns an alist of where the keys are strings, so you need to pass a <code>TESTFN</code> argument, such as <code>#'equals</code> or <code>#'string=</code> for this to work correctly. Once the tags are collected it can be inserted into the metadata file. The full function looks like this:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-elisp"><span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">defun</span> <span style="color: #7aa2f7;">go-emacs-publish-post-metadata</span> <span style="color: #7aa2f7;">()</span>
+  <span style="color: #7c819b;">"Collecs metadata for a post and writes it to a metadata.toml file."</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">let*</span> <span style="color: #ff9e64;">(</span><span style="color: #73daca;">(</span>keywords <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">org-collect-keywords</span> <span style="color: #7dcfff;">'</span><span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"TITLE"</span> <span style="color: #9ece6a;">"DATE"</span> <span style="color: #9ece6a;">"TAGS"</span> <span style="color: #9ece6a;">"SUMMARY"</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+         <span style="color: #73daca;">(</span>title   <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">car</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">alist-get</span> <span style="color: #9ece6a;">"TITLE"</span> keywords nil nil <span style="color: #7dcfff;">#'</span><span style="color: #e0af68;">equal</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+         <span style="color: #73daca;">(</span>date    <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">car</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">alist-get</span> <span style="color: #9ece6a;">"DATE"</span> keywords nil nil <span style="color: #7dcfff;">#'</span><span style="color: #e0af68;">equal</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+         <span style="color: #73daca;">(</span>tags    <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">car</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">alist-get</span> <span style="color: #9ece6a;">"TAGS"</span> keywords nil nil <span style="color: #7dcfff;">#'</span><span style="color: #e0af68;">equal</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+         <span style="color: #73daca;">(</span>summary <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">car</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">alist-get</span> <span style="color: #9ece6a;">"SUMMARY"</span> keywords nil nil <span style="color: #7dcfff;">#'</span><span style="color: #e0af68;">equal</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">with-temp-file</span> <span style="color: #9ece6a;">"metadata.toml"</span>
+      <span style="color: #73daca;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">"title=\"%s\"\n"</span> title<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+      <span style="color: #73daca;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">"tagString=\"%s\"\n"</span> tags<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+      <span style="color: #73daca;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">"summary=\"%s\"\n"</span> summary<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+      <span style="color: #73daca;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">"datestring=\"%s\"\n"</span> date<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+</pre>
+</div>
+
+<p>
+Finally, there isn&rsquo;t much work to do on the Go side. The <a href="https://github.com/BurntSushi/toml">package</a> I am using to deserialize the TOML file into Go is able to  extract the keywords directly into a slice if the struct you define to hold the data has a slice datatype. I used this same basic pipeline to get data from Emacs into go.
 </p>
 </div>
-<div id="outline-container-orgba1139c" class="outline-3">
-<h3 id="orgba1139c">Database Maintenance</h3>
-<div class="outline-text-3" id="text-orgba1139c">
+</div>
+<div id="outline-container-org7a41acd" class="outline-2">
+<h2 id="org7a41acd">What&rsquo;s Next?</h2>
+<div class="outline-text-2" id="text-org7a41acd">
 <p>
-For one thing, there is currently no good way to delete classes or tasks. Tasks need to be manually deleted and deleting classes requires users to delete all tasks associated with a class. This would be incredibly cumbersome for normal users. I would like to implement a solution that is a scheduled task that, perhaps once a day and when the app starts, will check for classes that have no associated tasks and were created more than a several months ago (perhaps four months or around the length of a normal semester). Furthermore, tasks whose due date has past by more than perhaps two weeks will automatically be deleted. This way, the database should automatically clean itself without getting in the way too much by deleting things in a way that isn&rsquo;t expected. It would probably be good to create a way for admins to change these values from the defaults.
+I have a few ideas for things to add next. For example, I can&rsquo;t add custom HTML to the home page, or the footer. It would be nice to have a way to optionally add a snippet to the footer if there is something I want to appear at the bottom of every page.
 </p>
-</div>
-</div>
-<div id="outline-container-org6280021" class="outline-3">
-<h3 id="org6280021">Validation</h3>
-<div class="outline-text-3" id="text-org6280021">
-<p>
-The other place the bot needs improvement is validation and testing. It made some effort to validate data, but more effort is required here. I am considering rewriting the bot in typescript to ensure that the data being sent to the database is in the correct type in order to prevent data inconsistency. I would also like to do more work on testing and using TypeScript would reduce the complexity of the tests I would need to write by elimination errors from inconsistencies in types.
-</p>
-</div>
 </div>
 </div>
 

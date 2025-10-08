@@ -9,6 +9,85 @@
     </description>
     
     <item>
+      <title>Go Emacs Static Blog Generator</title>
+      <pubDate>Tue, 07 Oct 2025 12:02:00 -0300</pubDate>
+      <guid>/posts/go-emacs.html</guid>
+      <link>/posts/go-emacs.html</link>
+    <description><![CDATA[
+    <html><head></head><body>
+    <p>
+<a href="https://github.com/naokotani/go-emacs">Go Emacs</a> is a static blog site generator written in Go that leverages Emacs Org mode&rsquo;s HTML exporting functionality. This is the most recent evolution of my <a href="https://chris-hughes.dev/blog/emacs-CMS.html">Emacs CMS</a> idea to use Org mode as a content management system for my blog. Go Emacs comes with the source code needed to generate a <code>go-emacs</code> binary that is used with the included <code>go.emacs.el</code> to generate blog posts.
+</p>
+<div id="outline-container-org0ebc30e" class="outline-2">
+<h2 id="org0ebc30e">Configuration</h2>
+<div class="outline-text-2" id="text-org0ebc30e">
+<p>
+One issue that I faced in the project, was how I was going to get the information from an Org mode document into the HTML for the website. In the previous iteration, I baked the metadata for a post directly into the HTML itself using a <code>BEGIN_EXPORT html</code> org source block. <code>org-html-export-to-html</code> will pick this up and insert the snippet  into the produced HTML document. This worked well because it meant that I only needed to send one HTML file to the server, but there were drawbacks. For example, if I didn&rsquo;t want to display parts of the snippet, I needed to remove it somehow server side. It was also cumbersome and ugly having all the Org versions of my  blog posts starting with a big block of HTML. For Go Emacs, I didn&rsquo;t have  to send files to the sever because everything was taking place on my host machine.
+</p>
+
+<p>
+After some research I realized that the <code>org-collect-keywords</code> function could not only collect org keywords, but could extract arbitrary user defined keywords. This felt like a good &ldquo;Org native&rdquo; way to store and collect post metadata, but the question remained: how to get the metadata from Elisp land into Go land?
+</p>
+</div>
+<div id="outline-container-org507b0c6" class="outline-3">
+<h3 id="org507b0c6">To TOML or not to TOML</h3>
+<div class="outline-text-3" id="text-org507b0c6">
+<p>
+After considering a few options, I decided to use TOML files to store the extracted keyword metadata and make it accessible to Go. TOML syntax is incredibly simple, and it is easy to deserialize on the Go end. Given that I was working with Emacs and Elisp, I considered trying to use Elisp itself to store configuration data, but I could not find a reasonable or reliable way to parse Elisp inside Go. It seemed like I would have to write my own package to parse Elisp inside Go, which felt outside the scope of what I was trying to accomplish. Similarly, I considered using some other Lisp dialect to keep the lispy emacsy feel going, but I ran into similar issues. As it stands, when a page or blog post is <code>published</code> with <code>go-emacs-publish</code>, a <code>metadata.toml</code> file is produced, which is then easily readable by the Go binary.
+</p>
+</div>
+</div>
+<div id="outline-container-org90f35fb" class="outline-3">
+<h3 id="org90f35fb">styles.toml</h3>
+<div class="outline-text-3" id="text-org90f35fb">
+<p>
+After creating this <code>metadata.toml</code> workflow, I realized that I could also use TOML to store CSS style information. Instead of expecting users to hand-edit the CSS files themselves, CSS styles are defined in a <code>styles.toml</code> file where the site colors and fonts can be easily configured. At runtime, this TOML file is then read by the Go binary to generate a <code>vars.css</code> file which holds all of the CSS variables available to configure. I could have simply allowed for the variables to be edited directly in a .css file, but I thought that it would make for a better user experience to restrict configuration to either org tags, or TOML files.
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org9a7799a" class="outline-2">
+<h2 id="org9a7799a">Tags</h2>
+<div class="outline-text-2" id="text-org9a7799a">
+<p>
+I wanted to add a searchable &ldquo;tags&rdquo; feature that allowed for posts to be sorted by tag or topic. First I created an org keyword to store the tags for the post, for example <code>#+tags: Emacs Go</code>. In <code>go-emacs-publish</code> I then write those tags into the TOML file by collecting the tags with <code>(org-collect-keywords '("TAGS"))</code>, which returns an alists of the keywords and their values. You can then extract the values with something like <code>(car (alist-get "TAGS" keywords nil nil #'equal))</code>. A quirk of <code>alist-get</code> is that it uses the <code>eq</code> function to test the keys to find the correct one to return, but <code>eq</code> only works on symbols and <code>org-collect-keywords</code> returns an alist of where the keys are strings, so you need to pass a <code>TESTFN</code> argument, such as <code>#'equals</code> or <code>#'string=</code> for this to work correctly. Once the tags are collected it can be inserted into the metadata file. The full function looks like this:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-elisp"><span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">defun</span> <span style="color: #7aa2f7;">go-emacs-publish-post-metadata</span> <span style="color: #7aa2f7;">()</span>
+  <span style="color: #7c819b;">"Collecs metadata for a post and writes it to a metadata.toml file."</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">let*</span> <span style="color: #ff9e64;">(</span><span style="color: #73daca;">(</span>keywords <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">org-collect-keywords</span> <span style="color: #7dcfff;">'</span><span style="color: #7aa2f7;">(</span><span style="color: #9ece6a;">"TITLE"</span> <span style="color: #9ece6a;">"DATE"</span> <span style="color: #9ece6a;">"TAGS"</span> <span style="color: #9ece6a;">"SUMMARY"</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+         <span style="color: #73daca;">(</span>title   <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">car</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">alist-get</span> <span style="color: #9ece6a;">"TITLE"</span> keywords nil nil <span style="color: #7dcfff;">#'</span><span style="color: #e0af68;">equal</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+         <span style="color: #73daca;">(</span>date    <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">car</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">alist-get</span> <span style="color: #9ece6a;">"DATE"</span> keywords nil nil <span style="color: #7dcfff;">#'</span><span style="color: #e0af68;">equal</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+         <span style="color: #73daca;">(</span>tags    <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">car</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">alist-get</span> <span style="color: #9ece6a;">"TAGS"</span> keywords nil nil <span style="color: #7dcfff;">#'</span><span style="color: #e0af68;">equal</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+         <span style="color: #73daca;">(</span>summary <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">car</span> <span style="color: #7aa2f7;">(</span><span style="color: #ff9e64;">alist-get</span> <span style="color: #9ece6a;">"SUMMARY"</span> keywords nil nil <span style="color: #7dcfff;">#'</span><span style="color: #e0af68;">equal</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #bb9af7;">with-temp-file</span> <span style="color: #9ece6a;">"metadata.toml"</span>
+      <span style="color: #73daca;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">"title=\"%s\"\n"</span> title<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+      <span style="color: #73daca;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">"tagString=\"%s\"\n"</span> tags<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+      <span style="color: #73daca;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">"summary=\"%s\"\n"</span> summary<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span>
+      <span style="color: #73daca;">(</span><span style="color: #ff9e64;">insert</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">format</span> <span style="color: #9ece6a;">"datestring=\"%s\"\n"</span> date<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
+</pre>
+</div>
+
+<p>
+Finally, there isn&rsquo;t much work to do on the Go side. The <a href="https://github.com/BurntSushi/toml">package</a> I am using to deserialize the TOML file into Go is able to  extract the keywords directly into a slice if the struct you define to hold the data has a slice datatype. I used this same basic pipeline to get data from Emacs into go.
+</p>
+</div>
+</div>
+<div id="outline-container-org7a41acd" class="outline-2">
+<h2 id="org7a41acd">What&rsquo;s Next?</h2>
+<div class="outline-text-2" id="text-org7a41acd">
+<p>
+I have a few ideas for things to add next. For example, I can&rsquo;t add custom HTML to the home page, or the footer. It would be nice to have a way to optionally add a snippet to the footer if there is something I want to appear at the bottom of every page.
+</p>
+</div>
+</div>
+
+    </body></html>
+    ]]></description>
+    </item>
+    
+    <item>
       <title>ZNC Bouncer with Doom Emacs</title>
       <pubDate>Fri, 12 Sep 2025 05:34:00 -0300</pubDate>
       <guid>/posts/znc-bouncer.html</guid>
