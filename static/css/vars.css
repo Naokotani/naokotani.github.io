@@ -9,6 +9,8 @@
  --h5: 1.25rem;
  --smallText: 0.8rem;
  --contentDivWidth: 20rem;
+ --blockquotePadding: 5px 20px;
+ --blockquoteRadius: 5px;
 }
 body.dark {
  --background: #141414;
@@ -28,6 +30,7 @@ body.dark {
  --linkColor: #e8defc;
  --linkHover: #fefefe;
  --footerColor: #060630;
+ --blockquoteColor: #222;
 }
 body.light {
  --background: #fefefe;
@@ -47,4 +50,5 @@ body.light {
  --linkColor: #e8defc;
  --linkHover: #bfbfbf;
  --footerColor: #addfff;
+ --blockquoteColor: #222;
 }
