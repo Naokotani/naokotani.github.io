@@ -113,7 +113,7 @@
   Managing a simple homelab with Podman Quadlets
 </summary>
 <h1>Quadlet Homelab</h1>
-<p><small class="date">Published: 28 Nov 2025 at 14:21 AST</small></p>
+<p><small class="date">Published: 28 Nov 2025 at 21:47 AST</small></p>
 <p><small class="tech">Podman | Go | coredns | Caddy | Jellyfin</small></p>
 <p>
 I recently decided to improve upon my homelab setup. The entire thing was running on an old Thinkpad t480 (This is now being used in a<a href="https://www.proxmox.com/en/"> Proxmox</a> cluster for a <a href="https://kubernetes.io/">Kubernetes</a> adventure! Post coming soon!) under my desk. It was running a <a href="https://factorio.com/">Factorio</a> server and a <a href="https://foundryvtt.com/">FoundryVTT</a> server that were managed with Docker and Docker compose. The setup worked fine for several months, but there were some pain points. First and foremost, my ISP changes my public IP somewhat frequently. Every time my router loses power for any reason, I get a new IP address and it also seems to change periodically even when its connected. This means that I had to manually update the IP each time my public IP changed, and the servers would be unreachable for long periods of time often until someone tried to use them, notified me they were down; you know the drill. The second was that the setup was not fully containerized. I was managing Daddy directly with systemd, which meant that I needed to install it directly on the system and all that entails. I wanted a setup that was more declartive, easy to reproduce on a new system, and kept all of the configuration in or place.
