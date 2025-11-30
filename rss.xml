@@ -16,19 +16,19 @@
     <description><![CDATA[
     <html><head></head><body>
     <p>
-I recently decided to improve upon my homelab setup. The entire thing was running on an old Thinkpad t480 (This is now being used in a<a href="https://www.proxmox.com/en/"> Proxmox</a> cluster for a <a href="https://kubernetes.io/">Kubernetes</a> adventure! Post coming soon!) under my desk. It was running a <a href="https://factorio.com/">Factorio</a> server and a <a href="https://foundryvtt.com/">FoundryVTT</a> server that were managed with Docker and Docker compose. The setup worked fine for several months, but there were some pain points. First and foremost, my ISP changes my public IP somewhat frequently. Every time my router loses power for any reason, I get a new IP address and it also seems to change periodically even when its connected. This means that I had to manually update the IP each time my public IP changed, and the servers would be unreachable for long periods of time often until someone tried to use them, notified me they were down; you know the drill. The second was that the setup was not fully containerized. I was managing Daddy directly with systemd, which meant that I needed to install it directly on the system and all that entails. I wanted a setup that was more declartive, easy to reproduce on a new system, and kept all of the configuration in or place.
+I recently decided to improve upon my homelab setup. The entire thing was running on an old Thinkpad t480 (This is now being used in a<a href="https://www.proxmox.com/en/"> Proxmox</a> cluster for a <a href="https://kubernetes.io/">Kubernetes</a> adventure! Post coming soon!) under my desk. It was running a <a href="https://factorio.com/">Factorio</a> server and a <a href="https://foundryvtt.com/">FoundryVTT</a> server that were managed with Docker and Docker compose. The setup worked fine for several months, but there were some pain points. First and foremost, my ISP changes my public IP somewhat frequently. Every time my router loses power for any reason, I get a new IP address and it also seems to change periodically even when its connected. This means that I had to manually update the IP each time my public IP changed, and the servers would be unreachable for long periods of time often until someone tried to use them, notified me they were down; you know the drill. The second was that the setup was not fully containerized. I was managing Caddy directly with systemd, which meant that I needed to install it directly on the system and all that entails. I wanted a setup that was more declarative, easy to reproduce on a new system, and kept all of the configuration in or place.
 </p>
-<div id="outline-container-orgf410ab0" class="outline-2">
-<h2 id="orgf410ab0">A Container Based Workflow</h2>
-<div class="outline-text-2" id="text-orgf410ab0">
+<div id="outline-container-orgbeb94bb" class="outline-2">
+<h2 id="orgbeb94bb">A Container Based Workflow</h2>
+<div class="outline-text-2" id="text-orgbeb94bb">
 <p>
 I have recently been playing around with <a href="https://fedoraproject.org/atomic-desktops/silverblue/">Fedora Silverblue</a> and other similar spins that promote a container based workflow. Silverblue comes with a rootless <a href="https://podman.io/">Podman</a> setup out of the box, but does not include anything Docker related. I have been hearing good things about Podman and Quadlets and opted to make the switch. Unlike Docker&rsquo;s reliance on <a href="https://docs.docker.com/engine/daemon/">Docker daemon</a> to manage container processes, Podman Quadlets leverage the already existing and mature systemd for this. This has several implications, mostly positive in my experience, but does have at least one drawback that I have encountered: systemd already manages a lot of services and your Quadlets will be mixed in with these. This can cause some minor nuisances when trying to view and manage logs, but its far from a deal breaker. Podman and systemd are setup out of the box on Fedora Atomic spins, and this means it is much easier to reproduce and avoids further configuration of the host system. For the most part it is plug-and-play with only a few bits of host configuration I will discuss below.
 </p>
 </div>
 </div>
-<div id="outline-container-orgcf5fc38" class="outline-2">
-<h2 id="orgcf5fc38">What Does the Setup Accomplish?</h2>
-<div class="outline-text-2" id="text-orgcf5fc38">
+<div id="outline-container-org12313de" class="outline-2">
+<h2 id="org12313de">What Does the Setup Accomplish?</h2>
+<div class="outline-text-2" id="text-org12313de">
 <p>
 I wanted this new homelab <a href="https://github.com/Naokotani/quadlab">setup</a> to accomplish the following:
 </p>
@@ -42,41 +42,41 @@ I wanted this new homelab <a href="https://github.com/Naokotani/quadlab">setup</
 </ul>
 </div>
 </div>
-<div id="outline-container-org6887748" class="outline-2">
-<h2 id="org6887748">Caddy</h2>
-<div class="outline-text-2" id="text-org6887748">
+<div id="outline-container-org9a1e674" class="outline-2">
+<h2 id="org9a1e674">Caddy</h2>
+<div class="outline-text-2" id="text-org9a1e674">
 <p>
 This was the easy part. Caddy works pretty much out of the box with very little setup. I just created an image using the <a href="https://hub.docker.com/_/caddy">Caddy image</a> on Docker hub, copied the Caddyfile into the image, and then created a simple <a href="https://github.com/Naokotani/quadlab/blob/main/systemd/caddy.container">Quadlet</a> that exposes the required ports and mounts the data directory into a volume so the logs persist. Mounting the data directory is probably not really needed since the logs are managed by journald. You could also mount the Caddyfile into the container in the .container file, but I prefer to just bake these kinds of config files into the image itself. What I would recommend is, when you are developing the container, mount config files into the container with the podman <code>-v</code> volume flag, and then when you have a stable config, you can optionally bake it into the image itself. 
 </p>
 </div>
-<div id="outline-container-org580515b" class="outline-3">
-<h3 id="org580515b">A Minor Caddy Nit Pick</h3>
-<div class="outline-text-3" id="text-org580515b">
+<div id="outline-container-org3d621bf" class="outline-3">
+<h3 id="org3d621bf">A Minor Caddy Nit Pick</h3>
+<div class="outline-text-3" id="text-org3d621bf">
 <p>
-Caddy is great because it is so easy to use compared alternatives like <a href="https://nginx.org/index.html">nginx</a> or <a href="https://www.haproxy.org/">haproxy</a>. HTTPS and certs are all auto-configured with very little effort. Caddy is considred to have more &ldquo;sane defaults&rdquo; out of the box, and this is largely true. Proxying with nginx requires a lot of tinkering with header directives to ensure that headers are correctly forwarded. The caveat is that when you do this it <i>feels</i> like you are doing something tricky and important (you are!). With Caddy its easy to just slap out a simple config that is &ldquo;good enough&rdquo; and &ldquo;does the thing&rdquo;, but it is important to recognize that there are many important configurations that you might want to consider with Caddy. Caddy and nginx are capable of limiting the size of requests or rate limiting, but the Caddy defaults for these are permissive or non-existent by default. When I started using nginx, I took a whole online course to figure it out, and that process brought a lot of these configuration options to light in a way that Caddy would not if I were newer to working with reverse proxies or web servers.
+Caddy is great because it is so easy to use compared alternatives like <a href="https://nginx.org/index.html">nginx</a> or <a href="https://www.haproxy.org/">haproxy</a>. HTTPS and certs are all auto-configured with very little effort. Caddy is considered to have more &ldquo;sane defaults&rdquo; out of the box, and this is largely true. Proxying with nginx requires a lot of tinkering with header directives to ensure that headers are correctly forwarded. The caveat is that when you do this it <i>feels</i> like you are doing something tricky and important (you are!). With Caddy its easy to just slap out a simple config that is &ldquo;good enough&rdquo; and &ldquo;does the thing&rdquo;, but it is important to recognize that there are many important configurations that you might want to consider with Caddy. Caddy and nginx are capable of limiting the size of requests or rate limiting, but the Caddy defaults for these are permissive or non-existent by default. When I started using nginx, I took a whole online course to figure it out, and that process brought a lot of these configuration options to light in a way that Caddy would not if I were newer to working with reverse proxies or web servers.
 </p>
 </div>
 </div>
 </div>
-<div id="outline-container-orgc0dead7" class="outline-2">
-<h2 id="orgc0dead7">ddns</h2>
-<div class="outline-text-2" id="text-orgc0dead7">
+<div id="outline-container-orgee06924" class="outline-2">
+<h2 id="orgee06924">ddns</h2>
+<div class="outline-text-2" id="text-orgee06924">
 <p>
 This <a href="https://github.com/Naokotani/quadlab/blob/main/ddns/main.go">script</a> fixes my dynamic IP issue, and there are a few things to talk about here. This script is a &rsquo;oneshot&rsquo; style process that checks if my public IP matches the A record, if so it simply exits, but if it they do not match, it will update the A record (there is no need to update the CNAMEs since the A record it now points to is correct). We need to think about how we want to run and schedule the script. One way to do this is with cron or some derivative like anacron. This works well enough, but cron is not always setup on a system by default, and it can be a minor pain to set it up. If you want to replicate the setup, its just one more thing to deal with. You inevitably forget and then scratch your head in confusion when your A record is not aligned with reality. Alternatively, you can install cron inside the container itself and have the container manage scheduling internally. Another option is systemd timers.
 </p>
 </div>
-<div id="outline-container-orga92ac57" class="outline-3">
-<h3 id="orga92ac57">Systemd Timers</h3>
-<div class="outline-text-3" id="text-orga92ac57">
+<div id="outline-container-orgc53e1c4" class="outline-3">
+<h3 id="orgc53e1c4">Systemd Timers</h3>
+<div class="outline-text-3" id="text-orgc53e1c4">
 <p>
 In the case of a Quadlet, it makes a lot more sense to leverage the built in scheduling of systemd via a <a href="https://github.com/Naokotani/quadlab/blob/main/systemd/ddns.timer">systemd timer</a>. It&rsquo;s already there if your system has systemd, works somewhat similarly to cron, and is relatively easy to setup. The only caveat I found with this is that because it is just a &ldquo;regular&rdquo; systemd timer, you cannot place it alongside your <code>.container</code> files. systemd will not look for timers in that directory because it is standard systemd utility and not Quadlet specific. The solution I found was to simply put the timer in <code>~/.config/containers/systemd</code> and then symlink it to <code>~/.config/systemd/user</code>. That way systemd will pick it up when you <code>systemctl --user daemon-reload</code> to update systemd with your new configuration. This way your entire setup is located in the same directory, but systemd is able to locate the unit file.
 </p>
 </div>
 </div>
 </div>
-<div id="outline-container-org628055c" class="outline-2">
-<h2 id="org628055c">Jellyfin Media server</h2>
-<div class="outline-text-2" id="text-org628055c">
+<div id="outline-container-org96806fa" class="outline-2">
+<h2 id="org96806fa">Jellyfin Media server</h2>
+<div class="outline-text-2" id="text-org96806fa">
 <p>
 <a href="https://jellyfin.org/">Jellyfin</a> is an excellent open-source media server that is similar to Plex. You can use it to stream music and movies across a network, has built-in authentication, create users, define permissions, and perform many other media management tasks. Jellyfin is built with containers in mind, and the docs provide detailed <a href="https://jellyfin.org/docs/general/installation/container/">installation instructions</a> for using it with containers. One thing to keep in mind is, while you would be able to stream audio just fine without a GPU, streaming video requires transcoding which will DESTROY your CPU (its gonna be red hot!). Streaming just one 4k video causes my CPU to run all 12 cores at 90-100%, and my older t480 CPU couldn&rsquo;t do it at all. The good news is that a decent GPU barely needs to get out of bed to transcode a video, and the gtx 3060 I use for this setup can handle several in parallel without any issue at all. This requires a little bit of extra <a href="https://podman-desktop.io/docs/podman/gpu">setup</a> that is not there by default on Fedora Atomic spins. Even though the laptop I am using cannot easily passthrough its GPU to a full VM, by following these instructions I was able to get it working with Podman in a few minutes.
 </p>
@@ -86,17 +86,17 @@ Jellyfin also, realistically, requires you to mount several directories that giv
 </p>
 </div>
 </div>
-<div id="outline-container-orgf37c9fe" class="outline-2">
-<h2 id="orgf37c9fe">FoundryVTT</h2>
-<div class="outline-text-2" id="text-orgf37c9fe">
+<div id="outline-container-orgb741055" class="outline-2">
+<h2 id="orgb741055">FoundryVTT</h2>
+<div class="outline-text-2" id="text-orgb741055">
 <p>
 There is not a lot to say here. Initially I used a Docker compose to manage this and I simply translated this into a Quadlet container. I just needed to point the Containerfile to the .zip file used to install Foundry and the persistent data directory where my systems and worlds. That was about it! pretty easy to setup because its designed with this kind of self-hosting in mind.
 </p>
 </div>
 </div>
-<div id="outline-container-org8ff5091" class="outline-2">
-<h2 id="org8ff5091">Coredns</h2>
-<div class="outline-text-2" id="text-org8ff5091">
+<div id="outline-container-org9eb8655" class="outline-2">
+<h2 id="org9eb8655">Coredns</h2>
+<div class="outline-text-2" id="text-org9eb8655">
 <p>
 The final element of this was an experiment with coredns. I wanted to create a local DNS server that resolves my domains to my local IP without needing to reach out the a public DNS server that resolves to my public IP. This way, if I use my domain name locally, it will immediately resolve to the private IP address of the server running the service in question. All other domains &ldquo;fallthrough&rdquo; this rule and are forwarded to a public DNS server; such as the one provided your ISP. To accomplish this, I wrote a very simple Corefile that matches the relevant domains, and redirects and forwards all other requests.  
 </p>
