@@ -16,19 +16,19 @@
     <description><![CDATA[
     <html><head></head><body>
     <p>
-I recently decided to improve upon my homelab setup. The entire thing was running on an old Thinkpad t480 (This is now being used in a<a href="https://www.proxmox.com/en/"> Proxmox</a> cluster for a <a href="https://kubernetes.io/">Kubernetes</a> adventure! Post coming soon!) under my desk. It was running a <a href="https://factorio.com/">Factorio</a> server and a <a href="https://foundryvtt.com/">FoundryVTT</a> server that were managed with Docker and Docker compose. The setup worked fine for several months, but there were some pain points. First and foremost, my ISP changes my public IP somewhat frequently. Every time my router loses power for any reason, I get a new IP address and it also seems to change periodically even when its connected. This means that I had to manually update the IP each time my public IP changed, and the servers would be unreachable for long periods of time often until someone tried to use them, notified me they were down; you know the drill. The second was that the setup was not fully containerized. I was managing Caddy directly with systemd, which meant that I needed to install it directly on the system and all that entails. I wanted a setup that was more declarative, easy to reproduce on a new system, and kept all of the configuration in or place.
+I recently decided to improve upon my homelab setup. The entire thing was running on an old Thinkpad t480 (This is now being used in a<a href="https://www.proxmox.com/en/"> Proxmox</a> cluster for a <a href="https://kubernetes.io/">Kubernetes</a> adventure! Post coming soon!) under my desk. It was running a <a href="https://factorio.com/">Factorio</a> server and a <a href="https://foundryvtt.com/">FoundryVTT</a> server that were managed with Docker and Docker compose. The setup worked fine for several months, but there were some pain points. First and foremost, my ISP changes my public IP somewhat frequently. Every time my router loses power for any reason, I get a new IP address and it also seems to change periodically even when its connected. This means that I had to manually update the IP each time my public IP changed, and the servers would be unreachable for long periods of time often until someone tried to use them, notified me they were down; you know the drill. The second was that the setup was not fully containerized. I was managing Daddy directly with systemd, which meant that I needed to install it directly on the system and all that entails. I wanted a setup that was more declartive, easy to reproduce on a new system, and kept all of the configuration in one place.
 </p>
-<div id="outline-container-orgbeb94bb" class="outline-2">
-<h2 id="orgbeb94bb">A Container Based Workflow</h2>
-<div class="outline-text-2" id="text-orgbeb94bb">
+<div id="outline-container-org813124a" class="outline-2">
+<h2 id="org813124a">A Container Based Workflow</h2>
+<div class="outline-text-2" id="text-org813124a">
 <p>
 I have recently been playing around with <a href="https://fedoraproject.org/atomic-desktops/silverblue/">Fedora Silverblue</a> and other similar spins that promote a container based workflow. Silverblue comes with a rootless <a href="https://podman.io/">Podman</a> setup out of the box, but does not include anything Docker related. I have been hearing good things about Podman and Quadlets and opted to make the switch. Unlike Docker&rsquo;s reliance on <a href="https://docs.docker.com/engine/daemon/">Docker daemon</a> to manage container processes, Podman Quadlets leverage the already existing and mature systemd for this. This has several implications, mostly positive in my experience, but does have at least one drawback that I have encountered: systemd already manages a lot of services and your Quadlets will be mixed in with these. This can cause some minor nuisances when trying to view and manage logs, but its far from a deal breaker. Podman and systemd are setup out of the box on Fedora Atomic spins, and this means it is much easier to reproduce and avoids further configuration of the host system. For the most part it is plug-and-play with only a few bits of host configuration I will discuss below.
 </p>
 </div>
 </div>
-<div id="outline-container-org12313de" class="outline-2">
-<h2 id="org12313de">What Does the Setup Accomplish?</h2>
-<div class="outline-text-2" id="text-org12313de">
+<div id="outline-container-org9d48490" class="outline-2">
+<h2 id="org9d48490">What Does the Setup Accomplish?</h2>
+<div class="outline-text-2" id="text-org9d48490">
 <p>
 I wanted this new homelab <a href="https://github.com/Naokotani/quadlab">setup</a> to accomplish the following:
 </p>
@@ -37,46 +37,46 @@ I wanted this new homelab <a href="https://github.com/Naokotani/quadlab">setup</
 <li><a href="https://caddyserver.com/">Caddy</a>: For reverse proxy to connect everything together.</li>
 <li>ddns: This is a simple <a href="https://github.com/Naokotani/quadlab/blob/main/ddns/main.go">Go script</a> that I wrote to update my IP address if my ISP changes it on me.</li>
 <li><a href="https://jellyfin.org/">Jellyfin</a>: Media server for music, movies, podcasts etc.</li>
-<li><a href="https://foundryvtt.com/">FoudnryVTT</a>: This is a TTRPG virtual table top web application that is designed with self-hosting in mind.</li>
+<li><a href="https://foundryvtt.com/">FoundryVTT</a>: This is a TTRPG virtual table top web application that is designed with self-hosting in mind.</li>
 <li><a href="https://coredns.io/">coredns</a>: I use this to resolve domains running locally to the appropriate private IPv4 address.</li>
 </ul>
 </div>
 </div>
-<div id="outline-container-org9a1e674" class="outline-2">
-<h2 id="org9a1e674">Caddy</h2>
-<div class="outline-text-2" id="text-org9a1e674">
+<div id="outline-container-orgf61c5d6" class="outline-2">
+<h2 id="orgf61c5d6">Caddy</h2>
+<div class="outline-text-2" id="text-orgf61c5d6">
 <p>
 This was the easy part. Caddy works pretty much out of the box with very little setup. I just created an image using the <a href="https://hub.docker.com/_/caddy">Caddy image</a> on Docker hub, copied the Caddyfile into the image, and then created a simple <a href="https://github.com/Naokotani/quadlab/blob/main/systemd/caddy.container">Quadlet</a> that exposes the required ports and mounts the data directory into a volume so the logs persist. Mounting the data directory is probably not really needed since the logs are managed by journald. You could also mount the Caddyfile into the container in the .container file, but I prefer to just bake these kinds of config files into the image itself. What I would recommend is, when you are developing the container, mount config files into the container with the podman <code>-v</code> volume flag, and then when you have a stable config, you can optionally bake it into the image itself. 
 </p>
 </div>
-<div id="outline-container-org3d621bf" class="outline-3">
-<h3 id="org3d621bf">A Minor Caddy Nit Pick</h3>
-<div class="outline-text-3" id="text-org3d621bf">
+<div id="outline-container-org9f2de54" class="outline-3">
+<h3 id="org9f2de54">A Minor Caddy Nit Pick</h3>
+<div class="outline-text-3" id="text-org9f2de54">
 <p>
-Caddy is great because it is so easy to use compared alternatives like <a href="https://nginx.org/index.html">nginx</a> or <a href="https://www.haproxy.org/">haproxy</a>. HTTPS and certs are all auto-configured with very little effort. Caddy is considered to have more &ldquo;sane defaults&rdquo; out of the box, and this is largely true. Proxying with nginx requires a lot of tinkering with header directives to ensure that headers are correctly forwarded. The caveat is that when you do this it <i>feels</i> like you are doing something tricky and important (you are!). With Caddy its easy to just slap out a simple config that is &ldquo;good enough&rdquo; and &ldquo;does the thing&rdquo;, but it is important to recognize that there are many important configurations that you might want to consider with Caddy. Caddy and nginx are capable of limiting the size of requests or rate limiting, but the Caddy defaults for these are permissive or non-existent by default. When I started using nginx, I took a whole online course to figure it out, and that process brought a lot of these configuration options to light in a way that Caddy would not if I were newer to working with reverse proxies or web servers.
+Caddy is great because it is so easy to use compared alternatives like <a href="https://nginx.org/index.html">nginx</a> or <a href="https://www.haproxy.org/">haproxy</a>. HTTPS and certs are all auto-configured with very little effort. Caddy is considred to have more &ldquo;sane defaults&rdquo; out of the box, and this is largely true. Proxying with nginx requires a lot of tinkering with header directives to ensure that headers are correctly forwarded. The caveat is that when you do this it <i>feels</i> like you are doing something tricky and important (you are!). With Caddy its easy to just slap out a simple config that is &ldquo;good enough&rdquo; and &ldquo;does the thing&rdquo;, but it is important to recognize that there are many important configurations that you might want to consider with Caddy. Caddy and nginx are capable of limiting the size of requests or rate limiting, but the Caddy defaults for these are permissive or non-existent by default. When I started using nginx, I took a whole online course to figure it out, and that process brought a lot of these configuration options to light in a way that Caddy would not if I were newer to working with reverse proxies or web servers.
 </p>
 </div>
 </div>
 </div>
-<div id="outline-container-orgee06924" class="outline-2">
-<h2 id="orgee06924">ddns</h2>
-<div class="outline-text-2" id="text-orgee06924">
+<div id="outline-container-org86e5bb0" class="outline-2">
+<h2 id="org86e5bb0">ddns</h2>
+<div class="outline-text-2" id="text-org86e5bb0">
 <p>
 This <a href="https://github.com/Naokotani/quadlab/blob/main/ddns/main.go">script</a> fixes my dynamic IP issue, and there are a few things to talk about here. This script is a &rsquo;oneshot&rsquo; style process that checks if my public IP matches the A record, if so it simply exits, but if it they do not match, it will update the A record (there is no need to update the CNAMEs since the A record it now points to is correct). We need to think about how we want to run and schedule the script. One way to do this is with cron or some derivative like anacron. This works well enough, but cron is not always setup on a system by default, and it can be a minor pain to set it up. If you want to replicate the setup, its just one more thing to deal with. You inevitably forget and then scratch your head in confusion when your A record is not aligned with reality. Alternatively, you can install cron inside the container itself and have the container manage scheduling internally. Another option is systemd timers.
 </p>
 </div>
-<div id="outline-container-orgc53e1c4" class="outline-3">
-<h3 id="orgc53e1c4">Systemd Timers</h3>
-<div class="outline-text-3" id="text-orgc53e1c4">
+<div id="outline-container-org9cc7d6a" class="outline-3">
+<h3 id="org9cc7d6a">Systemd Timers</h3>
+<div class="outline-text-3" id="text-org9cc7d6a">
 <p>
 In the case of a Quadlet, it makes a lot more sense to leverage the built in scheduling of systemd via a <a href="https://github.com/Naokotani/quadlab/blob/main/systemd/ddns.timer">systemd timer</a>. It&rsquo;s already there if your system has systemd, works somewhat similarly to cron, and is relatively easy to setup. The only caveat I found with this is that because it is just a &ldquo;regular&rdquo; systemd timer, you cannot place it alongside your <code>.container</code> files. systemd will not look for timers in that directory because it is standard systemd utility and not Quadlet specific. The solution I found was to simply put the timer in <code>~/.config/containers/systemd</code> and then symlink it to <code>~/.config/systemd/user</code>. That way systemd will pick it up when you <code>systemctl --user daemon-reload</code> to update systemd with your new configuration. This way your entire setup is located in the same directory, but systemd is able to locate the unit file.
 </p>
 </div>
 </div>
 </div>
-<div id="outline-container-org96806fa" class="outline-2">
-<h2 id="org96806fa">Jellyfin Media server</h2>
-<div class="outline-text-2" id="text-org96806fa">
+<div id="outline-container-orgaa787a8" class="outline-2">
+<h2 id="orgaa787a8">Jellyfin Media server</h2>
+<div class="outline-text-2" id="text-orgaa787a8">
 <p>
 <a href="https://jellyfin.org/">Jellyfin</a> is an excellent open-source media server that is similar to Plex. You can use it to stream music and movies across a network, has built-in authentication, create users, define permissions, and perform many other media management tasks. Jellyfin is built with containers in mind, and the docs provide detailed <a href="https://jellyfin.org/docs/general/installation/container/">installation instructions</a> for using it with containers. One thing to keep in mind is, while you would be able to stream audio just fine without a GPU, streaming video requires transcoding which will DESTROY your CPU (its gonna be red hot!). Streaming just one 4k video causes my CPU to run all 12 cores at 90-100%, and my older t480 CPU couldn&rsquo;t do it at all. The good news is that a decent GPU barely needs to get out of bed to transcode a video, and the gtx 3060 I use for this setup can handle several in parallel without any issue at all. This requires a little bit of extra <a href="https://podman-desktop.io/docs/podman/gpu">setup</a> that is not there by default on Fedora Atomic spins. Even though the laptop I am using cannot easily passthrough its GPU to a full VM, by following these instructions I was able to get it working with Podman in a few minutes.
 </p>
@@ -86,17 +86,17 @@ Jellyfin also, realistically, requires you to mount several directories that giv
 </p>
 </div>
 </div>
-<div id="outline-container-orgb741055" class="outline-2">
-<h2 id="orgb741055">FoundryVTT</h2>
-<div class="outline-text-2" id="text-orgb741055">
+<div id="outline-container-org1d5c19d" class="outline-2">
+<h2 id="org1d5c19d">FoundryVTT</h2>
+<div class="outline-text-2" id="text-org1d5c19d">
 <p>
 There is not a lot to say here. Initially I used a Docker compose to manage this and I simply translated this into a Quadlet container. I just needed to point the Containerfile to the .zip file used to install Foundry and the persistent data directory where my systems and worlds. That was about it! pretty easy to setup because its designed with this kind of self-hosting in mind.
 </p>
 </div>
 </div>
-<div id="outline-container-org9eb8655" class="outline-2">
-<h2 id="org9eb8655">Coredns</h2>
-<div class="outline-text-2" id="text-org9eb8655">
+<div id="outline-container-org81d4978" class="outline-2">
+<h2 id="org81d4978">Coredns</h2>
+<div class="outline-text-2" id="text-org81d4978">
 <p>
 The final element of this was an experiment with coredns. I wanted to create a local DNS server that resolves my domains to my local IP without needing to reach out the a public DNS server that resolves to my public IP. This way, if I use my domain name locally, it will immediately resolve to the private IP address of the server running the service in question. All other domains &ldquo;fallthrough&rdquo; this rule and are forwarded to a public DNS server; such as the one provided your ISP. To accomplish this, I wrote a very simple Corefile that matches the relevant domains, and redirects and forwards all other requests.  
 </p>
@@ -1486,29 +1486,29 @@ The other problem that Deno tries to solve is security. It is common practice wi
     <p>
 I wasn&rsquo;t entirely happy with my <a href="https://chris-hughes.dev/blog/emacs-CMS.html">Emacs CMS</a> blog project. It felt like a bit of a disorganized prototype. I had HTML lurking around in my index.js along with all of the logic for the whole app, it could only handle uploading .png files. Using a web framework like Express also felt really excessive for such a simple application. I had a few people suggest that the <a href="https://bun.sh/">Bun</a> JavaScript runtime as an alternative to Node that was worth checking out so I decided to take another stab at the project using that, cheerio and mustache. The entire project is located <a href="https://github.com/Naokotani/bun-blog">here</a> on my GitHub.
 </p>
-<div id="outline-container-org4b0cbb0" class="outline-2">
-<h2 id="org4b0cbb0">Bun vs. Node</h2>
-<div class="outline-text-2" id="text-org4b0cbb0">
+<div id="outline-container-orge97ea70" class="outline-2">
+<h2 id="orge97ea70">Bun vs. Node</h2>
+<div class="outline-text-2" id="text-orge97ea70">
 <p>
 Bun is a really interesting alternative to Node. It comes with a really nice <code>Bun.serve()</code> method for receiving and sending HTTP requests and responses so its very easy to just make a nice REST api right out of the box. It also comes with the ability to read .env files into <code>process.env</code>, which is a nice convenience. It also has <code>Bun.file()</code>, which is a replacement for Nodes <code>fs.readFile()</code>, that can read relative paths without the need to join a relative path with <code>__dirname</code>. A lot of these things come down to convenience replacements for common tasks, but the Bun website makes some claims about being super fast. Without doing a lot more research, I will take that with a grain of salt for now.
 </p>
 </div>
 </div>
-<div id="outline-container-orgcb4f7a0" class="outline-2">
-<h2 id="orgcb4f7a0">Getting the data from Emacs</h2>
-<div class="outline-text-2" id="text-orgcb4f7a0">
+<div id="outline-container-orgfc01004" class="outline-2">
+<h2 id="orgfc01004">Getting the data from Emacs</h2>
+<div class="outline-text-2" id="text-orgfc01004">
 <p>
 Similar to my other project I use the  following function to get my data from Emacs and my local machine to the remote server.
 </p>
 
 <div class="org-src-container">
-<pre class="src src-emacs-lisp">(<span style="color: #bb9af7;">defun</span> <span style="color: #7aa2f7;">nao/export-org-to-blog</span> ()
-  (<span style="color: #bb9af7;">interactive</span>)
-  (<span style="color: #bb9af7;">setq</span> <span style="color: #c0caf5;">org-html-doctype</span> <span style="color: #9ece6a;">"html5"</span>)
-  (<span style="color: #bb9af7;">let</span> ((filename (<span style="color: #ff9e64;">org-html-export-to-html</span> nil nil nil t)))
-    (<span style="color: #ff9e64;">copy-file</span> (<span style="color: #ff9e64;">concat</span> (<span style="color: #ff9e64;">file-name-sans-extension</span> filename) <span style="color: #9ece6a;">".png"</span>)
-               <span style="color: #9ece6a;">"/rsync:server:/path/to/images"</span> t)
-    (<span style="color: #ff9e64;">copy-file</span> filename <span style="color: #9ece6a;">"/rsync:server/path/to/html"</span> t)))
+<pre class="src src-emacs-lisp"><span style="color: #a9b1d6;">(</span><span style="color: #bb9af7;">defun</span> <span style="color: #7aa2f7;">nao/export-org-to-blog</span> <span style="color: #7aa2f7;">()</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">interactive</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">setq</span> <span style="color: #c0caf5;">org-html-doctype</span> <span style="color: #9ece6a;">"html5"</span><span style="color: #7aa2f7;">)</span>
+  <span style="color: #7aa2f7;">(</span><span style="color: #bb9af7;">let</span> <span style="color: #ff9e64;">(</span><span style="color: #73daca;">(</span>filename <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">org-html-export-to-html</span> nil nil nil t<span style="color: #a9b1d6;">)</span><span style="color: #73daca;">)</span><span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">copy-file</span> <span style="color: #73daca;">(</span><span style="color: #ff9e64;">concat</span> <span style="color: #a9b1d6;">(</span><span style="color: #ff9e64;">file-name-sans-extension</span> filename<span style="color: #a9b1d6;">)</span> <span style="color: #9ece6a;">".png"</span><span style="color: #73daca;">)</span>
+               <span style="color: #9ece6a;">"/rsync:server:/path/to/images"</span> t<span style="color: #ff9e64;">)</span>
+    <span style="color: #ff9e64;">(</span><span style="color: #ff9e64;">copy-file</span> filename <span style="color: #9ece6a;">"/rsync:server/path/to/html"</span> t<span style="color: #ff9e64;">)</span><span style="color: #7aa2f7;">)</span><span style="color: #a9b1d6;">)</span>
 </pre>
 </div>
 
@@ -1517,9 +1517,9 @@ Org mode also comes with a series of publish functions that, I am assuming, acco
 </p>
 </div>
 </div>
-<div id="outline-container-org1ea3ee6" class="outline-2">
-<h2 id="org1ea3ee6">Bun REST api</h2>
-<div class="outline-text-2" id="text-org1ea3ee6">
+<div id="outline-container-org0af1e85" class="outline-2">
+<h2 id="org0af1e85">Bun REST api</h2>
+<div class="outline-text-2" id="text-org0af1e85">
 <p>
 On the server I use a very simple REST api to direct traffic to resources by making use of <code>Bun.serve()</code>:
 </p>
@@ -1533,7 +1533,7 @@ On the server I use a very simple REST api to direct traffic to resources by mak
     <span style="color: #bb9af7;">if</span> (<span style="color: #9ece6a;">/\/blog\/.*\.html/</span>.test(req.url)) {
         <span style="color: #bb9af7;">const</span> <span style="color: #c0caf5;">match</span> = req.url.match(<span style="color: #9ece6a;">/\/blog\/(.*\.html)/</span>);
         <span style="color: #bb9af7;">return</span> getPost(
-            match![1],
+            match![<span style="color: #ff9e64; font-weight: bold;">1</span>],
             req.headers.get(<span style="color: #9ece6a;">"hx-request"</span>) === <span style="color: #9ece6a;">"true"</span>
         );
     }
@@ -1574,9 +1574,9 @@ inside <code>getPost()</code> if hx-request is true, I send just the HTML for th
 </p>
 </div>
 </div>
-<div id="outline-container-org9ba23c3" class="outline-2">
-<h2 id="org9ba23c3">Serving Static Files</h2>
-<div class="outline-text-2" id="text-org9ba23c3">
+<div id="outline-container-org6345fb2" class="outline-2">
+<h2 id="org6345fb2">Serving Static Files</h2>
+<div class="outline-text-2" id="text-org6345fb2">
 <p>
 The module that routes to the static file resources users regex similar to the main REST api:
 </p>
@@ -1599,9 +1599,9 @@ The module that routes to the static file resources users regex similar to the m
 </p>
 </div>
 </div>
-<div id="outline-container-org97f0375" class="outline-2">
-<h2 id="org97f0375">Generating thumbnails</h2>
-<div class="outline-text-2" id="text-org97f0375">
+<div id="outline-container-orgae9a0bf" class="outline-2">
+<h2 id="orgae9a0bf">Generating thumbnails</h2>
+<div class="outline-text-2" id="text-orgae9a0bf">
 <p>
 Initially to create the images for the cards I was simply taking screenshots and then uploading the results as is. This meant that the files were much larger than they needed to be and slow to load. Furthermore, they were inconsistent in terms of size and aspect ratio making the cards inconsistently sized. In order to solve this problem, I installed <a href="https://sharp.pixelplumbing.com/">sharp</a> in order to transform the images, but I wanted a way to automate it.
 </p>
@@ -1649,7 +1649,7 @@ I then run <code>sharp().resize()</code> with first two arguments being the widt
     <span style="color: #bb9af7;">try</span> {
         console.log(<span style="color: #9ece6a;">`Processing image ${filename}`</span>);
         sharp(<span style="color: #9ece6a;">`${imagesPath}/${filename}`</span>)
-            .resize(384, 185, {
+            .resize(<span style="color: #ff9e64; font-weight: bold;">384</span>, <span style="color: #ff9e64; font-weight: bold;">185</span>, {
                 fit: <span style="color: #9ece6a;">"cover"</span>,
             })
             .toFile(<span style="color: #9ece6a;">`${imagesPath}/thumb-${filename}`</span>);
@@ -1663,9 +1663,9 @@ I then run <code>sharp().resize()</code> with first two arguments being the widt
 </pre>
 </div>
 </div>
-<div id="outline-container-orgbc379c0" class="outline-3">
-<h3 id="orgbc379c0">fs.watch vs. chokidar</h3>
-<div class="outline-text-3" id="text-orgbc379c0">
+<div id="outline-container-org65e9569" class="outline-3">
+<h3 id="org65e9569">fs.watch vs. chokidar</h3>
+<div class="outline-text-3" id="text-org65e9569">
 <p>
 Another possible solution would be to use <a href="https://www.npmjs.com/package/chokidar">chokidar</a>. Chokidar still relies on <code>fs.watch()</code> and <code>fs.watchFile()</code>, but aims to resolve an issue where, depending on OS, the <code>eventType</code> returned by <code>fs.watch()</code> will always be &ldquo;Rename&rdquo; regardless of what is actually happening to the file. Since Chokidar still relies on the same fs methods as I am using, it is probably using similar techniques to return more appropriate events as I am using to validate that the file exists, which would indicate a move or delete event, and will add a dependency that is probably not really needed for the sake of saving a few lines of code. If I later find myself doing more extensive file system work that relies on <code>fs.watch()</code> I might reach for chokidar to avoid having write similar methods myself.
 </p>
