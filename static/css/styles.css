@@ -167,7 +167,7 @@ p a {
   color: var(--anchorColor);
 }
 
-p li {
+.org-ul a {
   color: var(--anchorColor);
 }
 
