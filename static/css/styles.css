@@ -167,6 +167,10 @@ p a {
   color: var(--anchorColor);
 }
 
+p li {
+  color: var(--anchorColor);
+}
+
 a.anchor {
   color: var(--anchorColor);
 }
